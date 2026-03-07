@@ -27,7 +27,7 @@ Repo.insert!(
 
 pack = Repo.get_by!(AssetPack, name: "Classic Fantasy")
 
-stamp_layers = fn ->
+stamp_layers = fn base_url ->
   [
     %{
       id: "base",
@@ -35,14 +35,14 @@ stamp_layers = fn ->
       blend_mode: "normal",
       opacity: 1.0,
       visible: true,
-      frames: [],
+      frames: [base_url],
       fps: 0
     },
     %{
       id: "shadow",
       type: "SHADOW",
       blend_mode: "multiply",
-      opacity: 1.0,
+      opacity: 0.6,
       visible: true,
       frames: [],
       fps: 0,
@@ -52,23 +52,28 @@ stamp_layers = fn ->
 end
 
 stamps = [
-  %{name: "Stone City", category: "settlements"},
-  %{name: "Village", category: "settlements"},
-  %{name: "Mountain Range", category: "terrain"},
-  %{name: "Forest Cluster", category: "terrain"},
-  %{name: "Ancient Ruins", category: "landmarks"},
-  %{name: "Stone Tower", category: "landmarks"}
+  %{name: "Stone City", category: "settlements", file: "city"},
+  %{name: "Village", category: "settlements", file: "village"},
+  %{name: "Mountain Range", category: "terrain", file: "mountain_range"},
+  %{name: "Forest Cluster", category: "terrain", file: "forest_cluster"},
+  %{name: "Ancient Ruins", category: "landmarks", file: "ruins"},
+  %{name: "Stone Tower", category: "landmarks", file: "stone_tower"}
 ]
 
+base_path = "/assets/stamps/classic_fantasy"
+
 for stamp <- stamps do
+  url = "#{base_path}/#{stamp.file}.png"
+
   Repo.insert!(
     %StampAsset{
       name: stamp.name,
       pack_id: pack.id,
       category: stamp.category,
-      layers: stamp_layers.()
+      thumbnail_url: url,
+      layers: stamp_layers.(url)
     },
-    on_conflict: :nothing,
+    on_conflict: {:replace, [:thumbnail_url, :layers]},
     conflict_target: [:name, :pack_id]
   )
 end

@@ -2,6 +2,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
   use ParchmentStudiosWeb, :live_view
 
   alias ParchmentStudios.Worlds
+  alias ParchmentStudios.Assets
   alias ParchmentStudios.AI.{LoreGenerator, ArtworkGenerator}
 
   @location_types ParchmentStudios.Worlds.Location.location_types()
@@ -45,7 +46,11 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        layer_panel_open: true,
        layers: @default_layers,
        active_layer: "features",
-       active_tool: "select"
+       active_tool: "select",
+       # Asset library
+       asset_library: %{},
+       active_asset_category: "settlements",
+       active_stamp_asset: nil
      )}
   end
 
@@ -54,12 +59,20 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
     project = Worlds.get_project!(project_id)
     world_map = Worlds.get_world_map_with_locations!(map_id)
 
+    # Load asset library
+    asset_library =
+      case Assets.list_packs() |> Enum.find(&(&1.style == "classic_fantasy")) do
+        nil -> %{}
+        pack -> Assets.list_assets(pack.id) |> Enum.group_by(& &1.category)
+      end
+
     {:noreply,
      assign(socket,
        project: project,
        world_map: world_map,
        locations: world_map.locations,
-       page_title: "#{world_map.name} - Map Editor"
+       page_title: "#{world_map.name} - Map Editor",
+       asset_library: asset_library
      )}
   end
 
@@ -313,8 +326,51 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
      |> push_event("set_tool", %{tool: tool})}
   end
 
+  def handle_event("set_asset_category", %{"category" => category}, socket) do
+    {:noreply, assign(socket, active_asset_category: category)}
+  end
+
+  def handle_event("select_stamp", %{"id" => id}, socket) do
+    # Find the asset across all categories
+    asset =
+      socket.assigns.asset_library
+      |> Enum.flat_map(fn {_cat, assets} -> assets end)
+      |> Enum.find(&(&1.id == id))
+
+    if asset do
+      {:noreply,
+       socket
+       |> assign(active_stamp_asset: asset, active_tool: "stamp")
+       |> push_event("set_tool", %{tool: "stamp", stamp_asset: encode_stamp_asset(asset)})}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("stamp_placed", _params, socket) do
     {:noreply, socket}
+  end
+
+  defp encode_stamp_asset(asset) do
+    %{
+      id: asset.id,
+      name: asset.name,
+      category: asset.category,
+      thumbnail_url: asset.thumbnail_url,
+      layers:
+        Enum.map(asset.layers, fn layer ->
+          %{
+            id: layer["id"] || layer[:id],
+            type: layer["type"] || layer[:type],
+            blend_mode: layer["blend_mode"] || layer[:blend_mode],
+            opacity: layer["opacity"] || layer[:opacity] || 1.0,
+            visible: Map.get(layer, "visible", Map.get(layer, :visible, true)),
+            frames: layer["frames"] || layer[:frames] || [],
+            fps: layer["fps"] || layer[:fps] || 0,
+            keyed_to: layer["keyed_to"] || layer[:keyed_to]
+          }
+        end)
+    }
   end
 
   defp encode_locations(locations) do

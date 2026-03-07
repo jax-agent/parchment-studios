@@ -22,7 +22,8 @@ import "phoenix_html"
 // Establish Phoenix Socket and LiveView configuration.
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
-import {hooks as colocatedHooks} from "phoenix-colocated/parchment_studios"
+// phoenix-colocated removed — using explicit hook imports instead
+const colocatedHooks = {};
 import {MapEditorHook} from "./map/index"
 import topbar from "../vendor/topbar"
 
