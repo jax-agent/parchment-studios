@@ -34,6 +34,7 @@ export const MapEditorHook = {
     this._history = new CommandHistory();
     this._renderer = new MapRenderer();
     this._selectedObject = null as MapObject | null;
+    this._selectedAsset = null as { id: string; name: string; imageUrl: string; category: string } | null;
     this._toolMode = 'select' as ToolMode;
     this._isDragging = false;
     this._isPanning = false;
@@ -62,8 +63,11 @@ export const MapEditorHook = {
         if (this._toolMode === 'stamp') {
           // Stamp mode: place a stamp at click position
           const world = viewport().screenToWorld(e.offsetX, e.offsetY);
-          // Two-layer stamp: base + shadow (keyed to lightAngle) — demonstrates M0.2 compositing
+          // Two-layer stamp: base + shadow (keyed to lightAngle)
           const ts = Date.now();
+          const asset = this._selectedAsset;
+          const baseFrames = asset ? [asset.imageUrl] : [];
+          const stampLabel = asset ? asset.name : 'Stamp';
           const cmd = new AddStampCommand(this._layers, 'features', {
             x: world.x - 20, y: world.y - 20,
             width: 40, height: 40,
@@ -74,7 +78,7 @@ export const MapEditorHook = {
                 blendMode: 'normal' as const,
                 opacity: 1,
                 visible: true,
-                frames: [],
+                frames: baseFrames,
                 fps: 0,
               },
               {
@@ -88,7 +92,7 @@ export const MapEditorHook = {
                 keyed_to: 'lightAngle',
               },
             ],
-            label: 'Stamp',
+            label: stampLabel,
           });
           this._history.execute(cmd);
           this._renderer.requestRedraw();
@@ -232,6 +236,15 @@ export const MapEditorHook = {
         this._layers.fromJSON(data);
         this._renderer.requestRedraw();
       }
+    });
+
+    this.handleEvent('asset_selected', (data: { id: string; name: string; category: string; image_url: string }) => {
+      this._selectedAsset = {
+        id: data.id,
+        name: data.name,
+        imageUrl: data.image_url,
+        category: data.category,
+      };
     });
 
     this.handleEvent('set_tool', (data: { tool: string }) => {

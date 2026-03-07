@@ -52,12 +52,12 @@ stamp_layers = fn ->
 end
 
 stamps = [
-  %{name: "Stone City", category: "settlements"},
-  %{name: "Village", category: "settlements"},
-  %{name: "Mountain Range", category: "terrain"},
-  %{name: "Forest Cluster", category: "terrain"},
-  %{name: "Ancient Ruins", category: "landmarks"},
-  %{name: "Stone Tower", category: "landmarks"}
+  %{name: "Stone City", category: "settlements", file: "city"},
+  %{name: "Village", category: "settlements", file: "village"},
+  %{name: "Mountain Range", category: "terrain", file: "mountain_range"},
+  %{name: "Forest Cluster", category: "terrain", file: "forest_cluster"},
+  %{name: "Ancient Ruins", category: "landmarks", file: "ruins"},
+  %{name: "Stone Tower", category: "landmarks", file: "stone_tower"}
 ]
 
 for stamp <- stamps do
@@ -66,7 +66,8 @@ for stamp <- stamps do
       name: stamp.name,
       pack_id: pack.id,
       category: stamp.category,
-      layers: stamp_layers.()
+      layers: stamp_layers.(),
+      thumbnail_url: "/assets/stamps/classic_fantasy/#{stamp.file}.png"
     },
     on_conflict: :nothing,
     conflict_target: [:name, :pack_id]

@@ -2,6 +2,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
   use ParchmentStudiosWeb, :live_view
 
   alias ParchmentStudios.Worlds
+  alias ParchmentStudios.Assets
   alias ParchmentStudios.AI.{LoreGenerator, ArtworkGenerator}
 
   @location_types ParchmentStudios.Worlds.Location.location_types()
@@ -30,6 +31,14 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    asset_packs = Assets.list_packs()
+    active_pack = List.first(asset_packs)
+
+    assets_by_category =
+      if active_pack,
+        do: active_pack.id |> Assets.list_assets() |> Enum.group_by(& &1.category),
+        else: %{}
+
     {:ok,
      assign(socket,
        page_title: "Map Editor",
@@ -45,7 +54,12 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        layer_panel_open: true,
        layers: @default_layers,
        active_layer: "features",
-       active_tool: "select"
+       active_tool: "select",
+       asset_packs: asset_packs,
+       active_pack: active_pack,
+       asset_library_open: true,
+       selected_asset: nil,
+       assets_by_category: assets_by_category
      )}
   end
 
@@ -313,6 +327,26 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
      |> push_event("set_tool", %{tool: tool})}
   end
 
+  def handle_event("select_asset", %{"id" => id, "name" => name, "category" => category}, socket) do
+    asset = %{id: id, name: name, category: category}
+    image_url = asset_image_url(name, socket.assigns.active_pack)
+
+    {:noreply,
+     socket
+     |> assign(selected_asset: asset, active_tool: "stamp")
+     |> push_event("asset_selected", %{
+       id: id,
+       name: name,
+       category: category,
+       image_url: image_url
+     })
+     |> push_event("set_tool", %{tool: "stamp"})}
+  end
+
+  def handle_event("toggle_asset_library", _params, socket) do
+    {:noreply, assign(socket, asset_library_open: !socket.assigns.asset_library_open)}
+  end
+
   def handle_event("stamp_placed", _params, socket) do
     {:noreply, socket}
   end
@@ -328,6 +362,12 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
         icon: loc.icon
       }
     end)
+  end
+
+  defp asset_image_url(name, pack) do
+    slug = name |> String.downcase() |> String.replace(" ", "_")
+    style = if pack, do: pack.style, else: "classic_fantasy"
+    "/assets/stamps/#{style}/#{slug}.png"
   end
 
   defp type_icon(type) do
@@ -532,6 +572,61 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
         >
         </div>
       </div>
+
+      <%!-- Asset Library Sidebar --%>
+      <div
+        :if={@asset_library_open}
+        class="w-64 bg-base-100 border-l border-base-content/10 overflow-y-auto flex-shrink-0"
+      >
+        <div class="flex items-center justify-between px-3 py-2 border-b border-base-content/10">
+          <span class="text-xs font-bold font-serif tracking-wide text-base-content/60">
+            STAMPS
+          </span>
+          <button
+            phx-click="toggle_asset_library"
+            class="btn btn-ghost btn-xs btn-square"
+            title="Close asset library"
+          >
+            <.icon name="hero-x-mark" class="w-3 h-3" />
+          </button>
+        </div>
+
+        <div :for={{category, assets} <- @assets_by_category} class="px-2 py-1">
+          <p class="text-[10px] font-bold font-serif tracking-wide text-base-content/40 uppercase px-1 py-1">
+            {category}
+          </p>
+          <div class="grid grid-cols-2 gap-1">
+            <button
+              :for={asset <- assets}
+              phx-click="select_asset"
+              phx-value-id={asset.id}
+              phx-value-name={asset.name}
+              phx-value-category={asset.category}
+              class={"flex flex-col items-center p-1 rounded cursor-pointer hover:bg-base-200 #{if @selected_asset && @selected_asset.id == asset.id, do: "ring-2 ring-primary bg-primary/10", else: ""}"}
+              title={asset.name}
+            >
+              <img
+                src={asset.thumbnail_url || asset_image_url(asset.name, @active_pack)}
+                alt={asset.name}
+                class="w-16 h-16 object-contain"
+              />
+              <span class="text-[10px] text-base-content/60 truncate w-full text-center mt-0.5">
+                {asset.name}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Asset library toggle (when closed) --%>
+      <button
+        :if={!@asset_library_open}
+        phx-click="toggle_asset_library"
+        class="absolute bottom-4 right-4 z-[1000] btn btn-sm bg-base-100/95 backdrop-blur shadow border-base-content/10"
+        title="Show asset library"
+      >
+        <.icon name="hero-square-2-stack" class="w-4 h-4" /> Assets
+      </button>
 
       <%!-- Right Panel - Location Detail --%>
       <div
