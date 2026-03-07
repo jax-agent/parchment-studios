@@ -1,6 +1,6 @@
 import { MapRenderer, Viewport } from './renderer';
 import { LayerManager } from './layers';
-import { CommandHistory, MoveObjectCommand, AddStampCommand, RemoveObjectCommand } from './commands';
+import { CommandHistory, MoveObjectCommand, AddStampCommand, RemoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand } from './commands';
 import type { MapObject, MapState, ToolMode } from './types';
 
 interface HookContext {
@@ -216,12 +216,14 @@ export const MapEditorHook = {
 
     // LiveView push event handlers
     this.handleEvent('layer_visibility_changed', (data: { id: string; visible: boolean }) => {
-      this._layers.setVisible(data.id, data.visible);
+      const cmd = new SetLayerVisibilityCommand(this._layers, data.id, data.visible);
+      this._history.execute(cmd);
       this._renderer.requestRedraw();
     });
 
     this.handleEvent('layer_opacity_changed', (data: { id: string; opacity: number }) => {
-      this._layers.setOpacity(data.id, data.opacity);
+      const cmd = new SetLayerOpacityCommand(this._layers, data.id, data.opacity);
+      this._history.execute(cmd);
       this._renderer.requestRedraw();
     });
 

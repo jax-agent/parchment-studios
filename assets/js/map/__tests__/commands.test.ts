@@ -298,6 +298,110 @@ describe('Concrete Commands', () => {
     });
   });
 
+  describe('SetLayerVisibilityCommand — integration', () => {
+    it('hiding Features layer makes stamps invisible (renderer skips hidden layers)', () => {
+      // Place a stamp on Features
+      layers.addObject('features', {
+        type: 'stamp', x: 0, y: 0, width: 40, height: 40,
+        rotation: 0, scale: 1, opacity: 1,
+        stampLayers: [makeStampLayer('base-1')], data: {},
+      });
+      expect(layers.getLayer('features')!.visible).toBe(true);
+      expect(layers.getLayer('features')!.objects).toHaveLength(1);
+
+      // Hide Features layer via command
+      const cmd = new SetLayerVisibilityCommand(layers, 'features', false);
+      cmd.execute();
+      expect(layers.getLayer('features')!.visible).toBe(false);
+      // Objects still exist but layer is hidden — renderer should skip
+      expect(layers.getLayer('features')!.objects).toHaveLength(1);
+
+      // Undo → visible again
+      cmd.undo();
+      expect(layers.getLayer('features')!.visible).toBe(true);
+    });
+
+    it('visibility toggle is fully undoable through CommandHistory', () => {
+      const history = new CommandHistory();
+
+      // Hide
+      const hideCmd = new SetLayerVisibilityCommand(layers, 'features', false);
+      history.execute(hideCmd);
+      expect(layers.getLayer('features')!.visible).toBe(false);
+
+      // Undo → visible
+      history.undo();
+      expect(layers.getLayer('features')!.visible).toBe(true);
+
+      // Redo → hidden again
+      history.redo();
+      expect(layers.getLayer('features')!.visible).toBe(false);
+    });
+
+    it('multiple visibility toggles are independently undoable', () => {
+      const history = new CommandHistory();
+
+      // Hide features
+      history.execute(new SetLayerVisibilityCommand(layers, 'features', false));
+      // Hide terrain
+      history.execute(new SetLayerVisibilityCommand(layers, 'terrain', false));
+
+      expect(layers.getLayer('features')!.visible).toBe(false);
+      expect(layers.getLayer('terrain')!.visible).toBe(false);
+
+      // Undo terrain → visible, features still hidden
+      history.undo();
+      expect(layers.getLayer('terrain')!.visible).toBe(true);
+      expect(layers.getLayer('features')!.visible).toBe(false);
+
+      // Undo features → visible
+      history.undo();
+      expect(layers.getLayer('features')!.visible).toBe(true);
+    });
+  });
+
+  describe('SetLayerOpacityCommand — integration', () => {
+    it('opacity change is undoable through CommandHistory', () => {
+      const history = new CommandHistory();
+
+      history.execute(new SetLayerOpacityCommand(layers, 'features', 0.3));
+      expect(layers.getLayer('features')!.opacity).toBe(0.3);
+
+      history.undo();
+      expect(layers.getLayer('features')!.opacity).toBe(1.0);
+
+      history.redo();
+      expect(layers.getLayer('features')!.opacity).toBe(0.3);
+    });
+
+    it('successive opacity changes each preserve previous value for undo', () => {
+      const history = new CommandHistory();
+
+      history.execute(new SetLayerOpacityCommand(layers, 'features', 0.8));
+      history.execute(new SetLayerOpacityCommand(layers, 'features', 0.4));
+      history.execute(new SetLayerOpacityCommand(layers, 'features', 0.1));
+
+      expect(layers.getLayer('features')!.opacity).toBe(0.1);
+
+      history.undo();
+      expect(layers.getLayer('features')!.opacity).toBe(0.4);
+
+      history.undo();
+      expect(layers.getLayer('features')!.opacity).toBe(0.8);
+
+      history.undo();
+      expect(layers.getLayer('features')!.opacity).toBe(1.0);
+    });
+
+    it('zero opacity effectively hides layer content', () => {
+      const cmd = new SetLayerOpacityCommand(layers, 'features', 0);
+      cmd.execute();
+      expect(layers.getLayer('features')!.opacity).toBe(0);
+      // Layer is still "visible" but at 0 opacity — renderer multiplies alpha to 0
+      expect(layers.getLayer('features')!.visible).toBe(true);
+    });
+  });
+
   describe('RemoveLayerCommand', () => {
     it('removes a layer and restores it on undo', () => {
       const initialCount = layers.getLayers().length;
