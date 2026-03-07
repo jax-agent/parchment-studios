@@ -145,6 +145,9 @@ export class MapRenderer {
   private dirty = true;
   private rafId: number | null = null;
   private font: any | null = null;
+  private bgImage: any | null = null;
+  private bgImageWidth = 0;
+  private bgImageHeight = 0;
 
   getViewport(): Viewport {
     return this.viewport;
@@ -164,6 +167,24 @@ export class MapRenderer {
       throw new Error('Failed to create CanvasKit surface');
     }
     this.font = new this.ck.Font(null, 14);
+
+    // Load parchment background texture (non-blocking, falls back to solid fill)
+    try {
+      const resp = await fetch('/images/parchment_bg.png');
+      if (resp.ok) {
+        const buf = await resp.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        const img = this.ck.MakeImageFromEncoded(bytes);
+        if (img) {
+          this.bgImage = img;
+          this.bgImageWidth = img.width();
+          this.bgImageHeight = img.height();
+          this.requestRedraw();
+        }
+      }
+    } catch {
+      // silently fall back to solid parchment fill
+    }
   }
 
   requestRedraw(): void {
