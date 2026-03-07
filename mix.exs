@@ -92,6 +92,7 @@ defmodule ParchmentStudios.MixProject do
         "esbuild parchment_studios"
       ],
       "assets.deploy": [
+        "cmd npm run --prefix assets copy:wasm",
         "tailwind parchment_studios --minify",
         "esbuild parchment_studios --minify",
         "phx.digest"
