@@ -246,6 +246,60 @@ export class AddLayerCommand implements Command {
   }
 }
 
+export interface StampParams {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  label: string;
+}
+
+export class AddStampCommand implements Command {
+  id = cmdId();
+  type = 'add_stamp';
+  private addedId: string | null = null;
+
+  constructor(
+    private layers: LayerManager,
+    private layerId: string,
+    private params: StampParams,
+  ) {}
+
+  execute(): void {
+    const obj: Omit<MapObject, 'id'> = {
+      type: 'stamp',
+      x: this.params.x,
+      y: this.params.y,
+      width: this.params.width,
+      height: this.params.height,
+      color: this.params.color,
+      label: this.params.label,
+      rotation: 0,
+      scale: 1,
+      opacity: 1,
+      data: {},
+    };
+    const added = this.layers.addObject(this.layerId, obj);
+    this.addedId = added.id;
+  }
+
+  undo(): void {
+    if (this.addedId) {
+      this.layers.removeObject(this.layerId, this.addedId);
+      this.addedId = null;
+    }
+  }
+
+  getAddedId(): string | null {
+    return this.addedId;
+  }
+
+  toJSON(): object {
+    return { type: this.type, layerId: this.layerId, params: this.params, addedId: this.addedId };
+  }
+}
+
 export class RemoveLayerCommand implements Command {
   id = cmdId();
   type = 'remove_layer';

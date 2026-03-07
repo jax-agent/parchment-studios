@@ -1,7 +1,7 @@
 import { MapRenderer, Viewport } from './renderer';
 import { LayerManager } from './layers';
-import { CommandHistory, MoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand } from './commands';
-import type { MapObject } from './types';
+import { CommandHistory, MoveObjectCommand, AddStampCommand } from './commands';
+import type { MapObject, ToolMode } from './types';
 
 interface HookContext {
   el: HTMLElement;
@@ -34,6 +34,7 @@ export const MapEditorHook = {
     this._history = new CommandHistory();
     this._renderer = new MapRenderer();
     this._selectedObject = null as MapObject | null;
+    this._toolMode = 'select' as ToolMode;
     this._isDragging = false;
     this._isPanning = false;
     this._dragStartX = 0;
@@ -43,7 +44,10 @@ export const MapEditorHook = {
 
     // Init CanvasKit (async)
     this._renderer.init(canvas).then(() => {
-      this._renderer.startRenderLoop(() => this._layers.getLayers());
+      this._renderer.startRenderLoop(
+        () => this._layers.getLayers(),
+        () => this._selectedObject?.id ?? null,
+      );
       this._renderer.requestRedraw();
     });
 
@@ -52,21 +56,39 @@ export const MapEditorHook = {
 
     canvas.addEventListener('mousedown', (e: MouseEvent) => {
       if (e.button === 0) {
-        // Left click: check for hit
-        const hit = viewport().hitTest(e.offsetX, e.offsetY, this._layers.getLayers());
-        if (hit) {
-          this._selectedObject = hit;
-          this._isDragging = true;
-          this._dragStartX = e.offsetX;
-          this._dragStartY = e.offsetY;
-          this._dragObjStartX = hit.x;
-          this._dragObjStartY = hit.y;
-          this.pushEvent('object_selected', { id: hit.id });
+        if (this._toolMode === 'stamp') {
+          // Stamp mode: place a stamp at click position
+          const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+          const cmd = new AddStampCommand(this._layers, 'features', {
+            x: world.x - 20, y: world.y - 20,
+            width: 40, height: 40,
+            color: '#8B4513', label: 'Stamp',
+          });
+          this._history.execute(cmd);
+          this._renderer.requestRedraw();
+          this.pushEvent('stamp_placed', {
+            id: cmd.getAddedId(),
+            x: world.x - 20, y: world.y - 20,
+            width: 40, height: 40,
+            color: '#8B4513', label: 'Stamp',
+          });
         } else {
-          this._selectedObject = null;
-          this._isPanning = true;
-          this._dragStartX = e.offsetX;
-          this._dragStartY = e.offsetY;
+          // Select mode: check for hit
+          const hit = viewport().hitTest(e.offsetX, e.offsetY, this._layers.getLayers());
+          if (hit) {
+            this._selectedObject = hit;
+            this._isDragging = true;
+            this._dragStartX = e.offsetX;
+            this._dragStartY = e.offsetY;
+            this._dragObjStartX = hit.x;
+            this._dragObjStartY = hit.y;
+            this.pushEvent('object_selected', { id: hit.id });
+          } else {
+            this._selectedObject = null;
+            this._isPanning = true;
+            this._dragStartX = e.offsetX;
+            this._dragStartY = e.offsetY;
+          }
         }
       } else if (e.button === 1) {
         // Middle click: pan
@@ -162,6 +184,12 @@ export const MapEditorHook = {
         this._layers.fromJSON(data);
         this._renderer.requestRedraw();
       }
+    });
+
+    this.handleEvent('set_tool', (data: { tool: string }) => {
+      this._toolMode = data.tool as ToolMode;
+      this._selectedObject = null;
+      this._renderer.requestRedraw();
     });
 
     this.handleEvent('locations_updated', (_data: any) => {

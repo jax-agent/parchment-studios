@@ -114,10 +114,10 @@ export class MapRenderer {
     this.dirty = true;
   }
 
-  startRenderLoop(getLayersFn: () => Layer[]): void {
+  startRenderLoop(getLayersFn: () => Layer[], getSelectedIdFn?: () => string | null): void {
     const frame = () => {
       if (this.dirty) {
-        this.render(getLayersFn());
+        this.render(getLayersFn(), getSelectedIdFn?.() ?? undefined);
         this.dirty = false;
       }
       this.rafId = requestAnimationFrame(frame);
@@ -132,7 +132,16 @@ export class MapRenderer {
     }
   }
 
-  render(layers: Layer[]): void {
+  private parseHexColor(hex: string): [number, number, number] {
+    const h = hex.replace('#', '');
+    return [
+      parseInt(h.substring(0, 2), 16),
+      parseInt(h.substring(2, 4), 16),
+      parseInt(h.substring(4, 6), 16),
+    ];
+  }
+
+  render(layers: Layer[], selectedObjectId?: string): void {
     if (!this.ck || !this.surface) return;
     const canvas = this.surface.getCanvas();
     const ck = this.ck;
@@ -180,16 +189,34 @@ export class MapRenderer {
             }
           } else {
             // Stamps, paths, regions: render as colored rectangles (placeholder)
-            paint.setColor(ck.Color(r, g, b, 255));
+            let cr = r, cg = g, cb = b;
+            if (obj.color) {
+              [cr, cg, cb] = this.parseHexColor(obj.color);
+            }
+            paint.setColor(ck.Color(cr, cg, cb, 255));
             paint.setStyle(ck.PaintStyle.Fill);
             const rect = ck.LTRBRect(0, 0, obj.width, obj.height);
             canvas.drawRect(rect, paint);
 
-            // Outline
+            // Label text
+            if (obj.label && this.font) {
+              paint.setColor(ck.Color(255, 255, 255, 255));
+              paint.setStyle(ck.PaintStyle.Fill);
+              paint.setAlphaf(layerAlpha * obj.opacity);
+              canvas.drawText(obj.label, 4, obj.height / 2 + 5, paint, this.font);
+            }
+
+            // Outline: gold selection highlight or subtle dark outline
             paint.setStyle(ck.PaintStyle.Stroke);
-            paint.setStrokeWidth(1);
-            paint.setColor(ck.Color(0, 0, 0, 255));
-            paint.setAlphaf(0.3 * layerAlpha * obj.opacity);
+            if (selectedObjectId && obj.id === selectedObjectId) {
+              paint.setStrokeWidth(3);
+              paint.setColor(ck.Color(255, 215, 0, 255));
+              paint.setAlphaf(1.0);
+            } else {
+              paint.setStrokeWidth(1);
+              paint.setColor(ck.Color(0, 0, 0, 255));
+              paint.setAlphaf(0.3 * layerAlpha * obj.opacity);
+            }
             canvas.drawRect(rect, paint);
           }
 

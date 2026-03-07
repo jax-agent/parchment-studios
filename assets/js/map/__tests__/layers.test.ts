@@ -116,6 +116,32 @@ describe('LayerManager', () => {
     });
   });
 
+  describe('getObjects', () => {
+    it('returns objects for a layer', () => {
+      mgr.addObject('features', {
+        type: 'stamp', x: 10, y: 20, width: 50, height: 50,
+        rotation: 0, scale: 1, opacity: 1, data: {},
+      });
+      const objs = mgr.getObjects('features');
+      expect(objs).toHaveLength(1);
+      expect(objs[0].x).toBe(10);
+    });
+
+    it('returns empty array for non-existent layer', () => {
+      expect(mgr.getObjects('nonexistent')).toEqual([]);
+    });
+
+    it('returns a copy (mutation does not affect original)', () => {
+      mgr.addObject('features', {
+        type: 'stamp', x: 0, y: 0, width: 10, height: 10,
+        rotation: 0, scale: 1, opacity: 1, data: {},
+      });
+      const copy = mgr.getObjects('features');
+      copy.pop();
+      expect(mgr.getObjects('features')).toHaveLength(1);
+    });
+  });
+
   describe('layer ordering', () => {
     it('moveLayerUp swaps with layer above', () => {
       const beforeFeatures = mgr.getLayer('features')!.zIndex;
