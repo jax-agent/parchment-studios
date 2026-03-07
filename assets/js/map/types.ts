@@ -64,6 +64,15 @@ export interface MapObject {
 
 export type ToolMode = 'select' | 'stamp';
 
+/**
+ * Global map state passed to the renderer each frame.
+ * lightAngle is in radians (0 = east/right, π/2 = south/down).
+ * Shadow layers shift opposite to lightAngle; light layers shift toward it.
+ */
+export interface MapState {
+  lightAngle: number;
+}
+
 export interface Layer {
   id: string;
   name: string;

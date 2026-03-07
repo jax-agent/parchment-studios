@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Viewport } from '../renderer';
+import { Viewport, lightKeyedOffset } from '../renderer';
 import type { Layer, MapObject } from '../types';
 
 describe('Viewport', () => {
@@ -61,6 +61,56 @@ describe('Viewport', () => {
       expect(world.y).toBe(0);
       expect(viewport.getZoom()).toBe(1.0);
     });
+  });
+});
+
+describe('lightKeyedOffset', () => {
+  it('shadow shifts opposite to light (east → shadow goes west)', () => {
+    // lightAngle = 0 means light comes from the east
+    const { dx, dy } = lightKeyedOffset('shadow', 0);
+    // shadow should go west (negative x), near zero y
+    expect(dx).toBeLessThan(0);
+    expect(Math.abs(dy)).toBeLessThan(0.01);
+  });
+
+  it('shadow shifts opposite to light (south → shadow goes north)', () => {
+    // lightAngle = π/2 means light comes from the south
+    const { dx, dy } = lightKeyedOffset('shadow', Math.PI / 2);
+    expect(dy).toBeLessThan(0);
+    expect(Math.abs(dx)).toBeLessThan(0.01);
+  });
+
+  it('light shifts toward light direction (east → light shift goes east)', () => {
+    const { dx, dy } = lightKeyedOffset('light', 0);
+    expect(dx).toBeGreaterThan(0);
+    expect(Math.abs(dy)).toBeLessThan(0.01);
+  });
+
+  it('non-light-keyed types have zero offset', () => {
+    const { dx, dy } = lightKeyedOffset('base', Math.PI / 4);
+    expect(dx).toBe(0);
+    expect(dy).toBe(0);
+  });
+
+  it('shadow magnitude equals the dist param', () => {
+    // At lightAngle=0, shadow dx should be -dist (exact opposite of east)
+    const dist = 12;
+    const { dx } = lightKeyedOffset('shadow', 0, dist);
+    expect(dx).toBeCloseTo(-dist, 5);
+  });
+
+  it('different lightAngles produce different shadow offsets', () => {
+    const { dx: dx1, dy: dy1 } = lightKeyedOffset('shadow', 0);
+    const { dx: dx2, dy: dy2 } = lightKeyedOffset('shadow', Math.PI / 4);
+    expect(dx1).not.toBeCloseTo(dx2, 2);
+  });
+
+  it('classic top-right light (−π/4) casts shadow toward bottom-left', () => {
+    // lightAngle = -π/4 means light shines toward the upper-right
+    // shadow falls opposite → lower-left (negative x, positive y in canvas coords)
+    const { dx, dy } = lightKeyedOffset('shadow', -Math.PI / 4);
+    expect(dx).toBeLessThan(0);
+    expect(dy).toBeGreaterThan(0);
   });
 });
 

@@ -1,7 +1,7 @@
 import { MapRenderer, Viewport } from './renderer';
 import { LayerManager } from './layers';
 import { CommandHistory, MoveObjectCommand, AddStampCommand } from './commands';
-import type { MapObject, ToolMode } from './types';
+import type { MapObject, MapState, ToolMode } from './types';
 
 interface HookContext {
   el: HTMLElement;
@@ -41,12 +41,15 @@ export const MapEditorHook = {
     this._dragStartY = 0;
     this._dragObjStartX = 0;
     this._dragObjStartY = 0;
+    // Global map state — lightAngle: 0 = east, -π/4 = classic top-left fantasy light
+    this._mapState = { lightAngle: -Math.PI / 4 } as MapState;
 
     // Init CanvasKit (async)
     this._renderer.init(canvas).then(() => {
       this._renderer.startRenderLoop(
         () => this._layers.getLayers(),
         () => this._selectedObject?.id ?? null,
+        () => this._mapState,
       );
       this._renderer.requestRedraw();
     });
@@ -59,19 +62,32 @@ export const MapEditorHook = {
         if (this._toolMode === 'stamp') {
           // Stamp mode: place a stamp at click position
           const world = viewport().screenToWorld(e.offsetX, e.offsetY);
-          // Placeholder: single base layer (colored rect) until real art is loaded
+          // Two-layer stamp: base + shadow (keyed to lightAngle) — demonstrates M0.2 compositing
+          const ts = Date.now();
           const cmd = new AddStampCommand(this._layers, 'features', {
             x: world.x - 20, y: world.y - 20,
             width: 40, height: 40,
-            stampLayers: [{
-              id: `base-${Date.now()}`,
-              type: 'base' as const,
-              blendMode: 'normal' as const,
-              opacity: 1,
-              visible: true,
-              frames: [],
-              fps: 0,
-            }],
+            stampLayers: [
+              {
+                id: `base-${ts}`,
+                type: 'base' as const,
+                blendMode: 'normal' as const,
+                opacity: 1,
+                visible: true,
+                frames: [],
+                fps: 0,
+              },
+              {
+                id: `shadow-${ts}`,
+                type: 'shadow' as const,
+                blendMode: 'multiply' as const,
+                opacity: 0.6,
+                visible: true,
+                frames: [],
+                fps: 0,
+                keyed_to: 'lightAngle',
+              },
+            ],
             label: 'Stamp',
           });
           this._history.execute(cmd);
@@ -198,6 +214,11 @@ export const MapEditorHook = {
     this.handleEvent('set_tool', (data: { tool: string }) => {
       this._toolMode = data.tool as ToolMode;
       this._selectedObject = null;
+      this._renderer.requestRedraw();
+    });
+
+    this.handleEvent('light_angle_changed', (data: { angle: number }) => {
+      this._mapState = { ...this._mapState, lightAngle: data.angle };
       this._renderer.requestRedraw();
     });
 
