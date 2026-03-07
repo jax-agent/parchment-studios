@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CommandHistory, AddObjectCommand, RemoveObjectCommand, MoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, ReorderLayerCommand, AddLayerCommand, RemoveLayerCommand } from '../commands';
+import { CommandHistory, AddObjectCommand, RemoveObjectCommand, MoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, ReorderLayerCommand, AddLayerCommand, RemoveLayerCommand, AddStampCommand } from '../commands';
 import { LayerManager } from '../layers';
 import type { Command, MapObject } from '../types';
 
@@ -200,6 +200,73 @@ describe('Concrete Commands', () => {
 
       cmd.undo();
       expect(layers.getLayers()).toHaveLength(initialCount);
+    });
+  });
+
+  describe('AddStampCommand', () => {
+    it('adds stamp to features layer with correct fields', () => {
+      const cmd = new AddStampCommand(layers, 'features', {
+        x: 100, y: 200, width: 40, height: 40, color: '#8B4513', label: 'Stamp',
+      });
+      cmd.execute();
+
+      const objs = layers.getLayer('features')!.objects;
+      expect(objs).toHaveLength(1);
+      expect(objs[0].type).toBe('stamp');
+      expect(objs[0].x).toBe(100);
+      expect(objs[0].y).toBe(200);
+      expect(objs[0].width).toBe(40);
+      expect(objs[0].height).toBe(40);
+      expect(objs[0].color).toBe('#8B4513');
+      expect(objs[0].label).toBe('Stamp');
+    });
+
+    it('getAddedId returns the created object ID', () => {
+      const cmd = new AddStampCommand(layers, 'features', {
+        x: 0, y: 0, width: 40, height: 40, color: '#FF0000', label: 'Test',
+      });
+      expect(cmd.getAddedId()).toBeNull();
+      cmd.execute();
+      expect(cmd.getAddedId()).toBeDefined();
+      expect(typeof cmd.getAddedId()).toBe('string');
+    });
+
+    it('undo removes the stamp and clears addedId', () => {
+      const cmd = new AddStampCommand(layers, 'features', {
+        x: 50, y: 50, width: 40, height: 40, color: '#00FF00', label: 'Undo',
+      });
+      cmd.execute();
+      expect(layers.getLayer('features')!.objects).toHaveLength(1);
+
+      cmd.undo();
+      expect(layers.getLayer('features')!.objects).toHaveLength(0);
+      expect(cmd.getAddedId()).toBeNull();
+    });
+
+    it('redo re-adds the stamp via CommandHistory', () => {
+      const history = new CommandHistory();
+      const cmd = new AddStampCommand(layers, 'features', {
+        x: 10, y: 10, width: 40, height: 40, color: '#0000FF', label: 'Redo',
+      });
+      history.execute(cmd);
+      expect(layers.getLayer('features')!.objects).toHaveLength(1);
+
+      history.undo();
+      expect(layers.getLayer('features')!.objects).toHaveLength(0);
+
+      history.redo();
+      expect(layers.getLayer('features')!.objects).toHaveLength(1);
+    });
+
+    it('toJSON serializes correctly', () => {
+      const params = { x: 10, y: 20, width: 40, height: 40, color: '#123456', label: 'Test' };
+      const cmd = new AddStampCommand(layers, 'features', params);
+      cmd.execute();
+      const json = cmd.toJSON() as any;
+      expect(json.type).toBe('add_stamp');
+      expect(json.layerId).toBe('features');
+      expect(json.params).toEqual(params);
+      expect(json.addedId).toBeDefined();
     });
   });
 

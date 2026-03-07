@@ -13,8 +13,12 @@ export interface MapObject {
   scale: number;
   opacity: number;
   assetId?: string;
+  color?: string;
+  label?: string;
   data: Record<string, unknown>;
 }
+
+export type ToolMode = 'select' | 'stamp';
 
 export interface Layer {
   id: string;

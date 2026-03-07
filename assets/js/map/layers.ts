@@ -141,6 +141,12 @@ export class LayerManager {
     if (layer) layer.opacity = opacity;
   }
 
+  getObjects(layerId: string): MapObject[] {
+    const layer = this.getLayer(layerId);
+    if (!layer) return [];
+    return [...layer.objects];
+  }
+
   toJSON(): object {
     return { layers: this.getLayers() };
   }

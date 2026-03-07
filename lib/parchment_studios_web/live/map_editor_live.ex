@@ -44,7 +44,8 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        location_types: @location_types,
        layer_panel_open: true,
        layers: @default_layers,
-       active_layer: "features"
+       active_layer: "features",
+       active_tool: "select"
      )}
   end
 
@@ -305,6 +306,17 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
     {:noreply, assign(socket, layers: new_layers)}
   end
 
+  def handle_event("set_tool", %{"tool" => tool}, socket) do
+    {:noreply,
+     socket
+     |> assign(active_tool: tool)
+     |> push_event("set_tool", %{tool: tool})}
+  end
+
+  def handle_event("stamp_placed", _params, socket) do
+    {:noreply, socket}
+  end
+
   defp encode_locations(locations) do
     Enum.map(locations, fn loc ->
       %{
@@ -490,6 +502,26 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
         >
           <.icon name="hero-squares-2x2" class="w-4 h-4" /> Layers
         </button>
+
+        <%!-- Tool Mode Toolbar --%>
+        <div class="absolute top-4 right-4 z-[1000] flex gap-1 bg-base-100/95 backdrop-blur rounded-lg shadow-lg border border-base-content/10 p-1">
+          <button
+            phx-click="set_tool"
+            phx-value-tool="select"
+            class={"btn btn-sm btn-square #{if @active_tool == "select", do: "btn-primary", else: "btn-ghost"}"}
+            title="Select tool"
+          >
+            <.icon name="hero-cursor-arrow-rays" class="w-4 h-4" />
+          </button>
+          <button
+            phx-click="set_tool"
+            phx-value-tool="stamp"
+            class={"btn btn-sm btn-square #{if @active_tool == "stamp", do: "btn-primary", else: "btn-ghost"}"}
+            title="Stamp tool"
+          >
+            <.icon name="hero-square-2-stack" class="w-4 h-4" />
+          </button>
+        </div>
 
         <div
           id="map-container"
