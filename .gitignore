@@ -42,3 +42,6 @@ npm-debug.log
 *.db
 *.db-*
 
+
+# Don't ignore stamp art (these are source assets, not build artifacts)
+!/priv/static/assets/stamps/
