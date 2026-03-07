@@ -79,6 +79,9 @@ ENV PHX_SERVER=true
 # Only copy the final release from the build stage
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/parchment_studios ./
 
+# Create /data dir with correct permissions for SQLite volume
+RUN mkdir -p /data && chown nobody:nogroup /data
+
 USER nobody
 
 # If using an environment that doesn't automatically reap zombie processes, it is
