@@ -155,6 +155,16 @@ describe('hitTest', () => {
     expect(hit).toBeNull();
   });
 
+  it('ignores layers with opacity 0 for hit testing only when not visible', () => {
+    const viewport = new Viewport();
+    const obj = makeObject(10, 10, 50, 50);
+    // opacity=0 but visible=true — still hittable (opacity is visual only)
+    const layers = [{ ...makeLayer('l1', [obj]), opacity: 0 }];
+    const hit = viewport.hitTest(25, 25, layers);
+    expect(hit).toBeDefined();
+    expect(hit!.id).toBe(obj.id);
+  });
+
   it('returns topmost object when overlapping', () => {
     const viewport = new Viewport();
     const bottom = makeObject(10, 10, 50, 50);
