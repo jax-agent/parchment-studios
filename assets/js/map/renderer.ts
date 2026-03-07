@@ -337,7 +337,8 @@ export class MapRenderer {
     const canvas = this.surface.getCanvas();
     const ck = this.ck;
 
-    canvas.clear(ck.Color4f(0.95, 0.93, 0.9, 1.0)); // parchment background
+    // Solid parchment clear — always (serves as fallback if texture not loaded)
+    canvas.clear(ck.Color4f(0.95, 0.93, 0.9, 1.0));
 
     canvas.save();
     // Apply viewport transform
@@ -345,6 +346,31 @@ export class MapRenderer {
     const zoom = this.viewport.getZoom();
     canvas.translate(px, py);
     canvas.scale(zoom, zoom);
+
+    // Tile parchment background texture in world space (pans/zooms with map)
+    if (this.bgImage && this.bgImageWidth > 0 && this.bgImageHeight > 0) {
+      const canvasW = this.surface!.width();
+      const canvasH = this.surface!.height();
+      const tw = this.bgImageWidth;
+      const th = this.bgImageHeight;
+      // Visible world-space bounds (inverse viewport transform)
+      const worldLeft  = -px / zoom;
+      const worldTop   = -py / zoom;
+      const worldRight = (canvasW - px) / zoom;
+      const worldBottom = (canvasH - py) / zoom;
+      const startX = Math.floor(worldLeft  / tw) * tw;
+      const startY = Math.floor(worldTop   / th) * th;
+      const bgPaint = new ck.Paint();
+      try {
+        for (let ty = startY; ty < worldBottom; ty += th) {
+          for (let tx = startX; tx < worldRight; tx += tw) {
+            canvas.drawImage(this.bgImage, tx, ty, bgPaint);
+          }
+        }
+      } finally {
+        bgPaint.delete();
+      }
+    }
 
     // Render each visible layer sorted by zIndex
     const sorted = [...layers].sort((a, b) => a.zIndex - b.zIndex);
