@@ -1,0 +1,344 @@
+defmodule ParchmentStudiosWeb.MapEditorLive do
+  use ParchmentStudiosWeb, :live_view
+
+  alias ParchmentStudios.Worlds
+  alias ParchmentStudios.AI.{LoreGenerator, ArtworkGenerator}
+
+  @location_types ParchmentStudios.Worlds.Location.location_types()
+
+  @impl true
+  def mount(_params, _session, socket) do
+    {:ok,
+     assign(socket,
+       page_title: "Map Editor",
+       world_map: nil,
+       project: nil,
+       locations: [],
+       selected_type: "city",
+       selected_location: nil,
+       location_form: nil,
+       generating_lore: false,
+       generating_art: false,
+       location_types: @location_types
+     )}
+  end
+
+  @impl true
+  def handle_params(%{"project_id" => project_id, "map_id" => map_id}, _uri, socket) do
+    project = Worlds.get_project!(project_id)
+    world_map = Worlds.get_world_map_with_locations!(map_id)
+
+    {:noreply,
+     assign(socket,
+       project: project,
+       world_map: world_map,
+       locations: world_map.locations,
+       page_title: "#{world_map.name} - Map Editor"
+     )}
+  end
+
+  @impl true
+  def handle_event("select_type", %{"type" => type}, socket) do
+    {:noreply, assign(socket, selected_type: type)}
+  end
+
+  def handle_event("map_click", %{"lat" => lat, "lng" => lng}, socket) do
+    attrs = %{
+      name: "New #{String.capitalize(socket.assigns.selected_type)}",
+      type: socket.assigns.selected_type,
+      latitude: lat,
+      longitude: lng,
+      world_map_id: socket.assigns.world_map.id
+    }
+
+    case Worlds.create_location(attrs) do
+      {:ok, location} ->
+        locations = Worlds.list_locations(socket.assigns.world_map.id)
+
+        {:noreply,
+         socket
+         |> assign(locations: locations, selected_location: location)
+         |> assign(location_form: to_form(Worlds.change_location(location)))
+         |> push_event("locations_updated", %{locations: encode_locations(locations)})}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Failed to place location")}
+    end
+  end
+
+  def handle_event("select_location", %{"id" => id}, socket) do
+    location = Worlds.get_location!(id)
+    form = to_form(Worlds.change_location(location))
+    {:noreply, assign(socket, selected_location: location, location_form: form)}
+  end
+
+  def handle_event("close_panel", _params, socket) do
+    {:noreply, assign(socket, selected_location: nil, location_form: nil)}
+  end
+
+  def handle_event("update_location", %{"location" => params}, socket) do
+    location = socket.assigns.selected_location
+
+    case Worlds.update_location(location, params) do
+      {:ok, updated} ->
+        locations = Worlds.list_locations(socket.assigns.world_map.id)
+
+        {:noreply,
+         socket
+         |> assign(
+           selected_location: updated,
+           locations: locations,
+           location_form: to_form(Worlds.change_location(updated))
+         )
+         |> push_event("locations_updated", %{locations: encode_locations(locations)})}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, location_form: to_form(changeset))}
+    end
+  end
+
+  def handle_event("move_location", %{"id" => id, "lat" => lat, "lng" => lng}, socket) do
+    location = Worlds.get_location!(id)
+
+    case Worlds.update_location(location, %{latitude: lat, longitude: lng}) do
+      {:ok, updated} ->
+        locations = Worlds.list_locations(socket.assigns.world_map.id)
+
+        selected =
+          if socket.assigns.selected_location && socket.assigns.selected_location.id == updated.id,
+            do: updated,
+            else: socket.assigns.selected_location
+
+        {:noreply, assign(socket, locations: locations, selected_location: selected)}
+
+      {:error, _} ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("generate_lore", _params, socket) do
+    location = socket.assigns.selected_location
+    nearby = Worlds.nearby_locations(location)
+
+    socket = assign(socket, generating_lore: true)
+
+    case LoreGenerator.generate(location, nearby) do
+      {:ok, %{description: desc, lore: lore}} ->
+        {:ok, updated} = Worlds.update_location(location, %{description: desc, lore: lore})
+        locations = Worlds.list_locations(socket.assigns.world_map.id)
+
+        {:noreply,
+         socket
+         |> assign(
+           selected_location: updated,
+           locations: locations,
+           generating_lore: false,
+           location_form: to_form(Worlds.change_location(updated))
+         )}
+
+      {:error, :no_api_key} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Set OPENROUTER_API_KEY to generate lore")
+         |> assign(generating_lore: false)}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to generate lore")
+         |> assign(generating_lore: false)}
+    end
+  end
+
+  def handle_event("generate_artwork", _params, socket) do
+    location = socket.assigns.selected_location
+    socket = assign(socket, generating_art: true)
+
+    case ArtworkGenerator.generate_prompt(location) do
+      {:ok, %{art_prompt: prompt}} ->
+        stats = Map.merge(location.stats || %{}, %{"art_prompt" => prompt})
+        {:ok, updated} = Worlds.update_location(location, %{stats: stats})
+
+        {:noreply,
+         socket
+         |> assign(
+           selected_location: updated,
+           generating_art: false,
+           location_form: to_form(Worlds.change_location(updated))
+         )
+         |> put_flash(:info, "Art prompt generated and stored")}
+    end
+  end
+
+  def handle_event("delete_location", %{"id" => id}, socket) do
+    location = Worlds.get_location!(id)
+    {:ok, _} = Worlds.delete_location(location)
+    locations = Worlds.list_locations(socket.assigns.world_map.id)
+
+    {:noreply,
+     socket
+     |> assign(locations: locations, selected_location: nil, location_form: nil)
+     |> push_event("locations_updated", %{locations: encode_locations(locations)})}
+  end
+
+  defp encode_locations(locations) do
+    Enum.map(locations, fn loc ->
+      %{
+        id: loc.id,
+        name: loc.name,
+        type: loc.type,
+        lat: loc.latitude,
+        lng: loc.longitude,
+        icon: loc.icon
+      }
+    end)
+  end
+
+  defp type_icon(type) do
+    case type do
+      "city" -> "hero-building-office-2"
+      "town" -> "hero-home-modern"
+      "village" -> "hero-home"
+      "dungeon" -> "hero-key"
+      "landmark" -> "hero-star"
+      "fortress" -> "hero-shield-check"
+      "ruins" -> "hero-cube-transparent"
+      "natural_feature" -> "hero-globe-americas"
+      "region" -> "hero-map"
+      _ -> "hero-map-pin"
+    end
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div class="flex h-screen overflow-hidden bg-base-200">
+      <%!-- Left Toolbar --%>
+      <div class="w-16 bg-base-300 border-r border-base-content/10 flex flex-col items-center py-4 gap-2">
+        <.link
+          navigate={~p"/projects"}
+          class="btn btn-ghost btn-sm btn-square mb-4"
+          title="Back to Projects"
+        >
+          <.icon name="hero-arrow-left" class="w-5 h-5" />
+        </.link>
+
+        <div class="divider my-0"></div>
+        <p class="text-[10px] text-base-content/40 font-serif">TOOLS</p>
+
+        <button
+          :for={type <- @location_types}
+          phx-click="select_type"
+          phx-value-type={type}
+          class={"btn btn-sm btn-square #{if @selected_type == type, do: "btn-primary", else: "btn-ghost"}"}
+          title={String.replace(type, "_", " ") |> String.capitalize()}
+        >
+          <.icon name={type_icon(type)} class="w-5 h-5" />
+        </button>
+      </div>
+
+      <%!-- Map Area --%>
+      <div class="flex-1 relative">
+        <div class="absolute top-4 left-4 z-[1000]">
+          <h2 class="text-lg font-serif font-bold text-base-content bg-base-100/80 backdrop-blur px-3 py-1 rounded shadow">
+            {@world_map && @world_map.name}
+          </h2>
+          <p class="text-xs text-base-content/50 bg-base-100/80 backdrop-blur px-3 py-0.5 rounded-b">
+            Click map to place:
+            <span class="font-bold text-primary">{@selected_type |> String.replace("_", " ")}</span>
+          </p>
+        </div>
+
+        <div
+          id="map-container"
+          phx-hook="MapHook"
+          phx-update="ignore"
+          data-locations={Jason.encode!(encode_locations(@locations))}
+          class="w-full h-full"
+        >
+        </div>
+      </div>
+
+      <%!-- Right Panel - Location Detail --%>
+      <div
+        :if={@selected_location}
+        class="w-96 bg-base-100 border-l border-base-content/10 overflow-y-auto shadow-xl"
+      >
+        <div class="p-4">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-xl font-serif font-bold">{@selected_location.name}</h3>
+            <button phx-click="close_panel" class="btn btn-ghost btn-sm btn-square">
+              <.icon name="hero-x-mark" class="w-5 h-5" />
+            </button>
+          </div>
+
+          <div class="badge badge-primary badge-sm font-serif mb-4">
+            {@selected_location.type |> String.replace("_", " ") |> String.capitalize()}
+          </div>
+
+          <.form for={@location_form} phx-change="update_location" phx-submit="update_location">
+            <.input field={@location_form[:name]} label="Name" />
+            <.input
+              field={@location_form[:type]}
+              label="Type"
+              type="select"
+              options={
+                Enum.map(@location_types, &{String.replace(&1, "_", " ") |> String.capitalize(), &1})
+              }
+            />
+            <.input field={@location_form[:description]} label="Description" type="textarea" rows="3" />
+            <.input field={@location_form[:lore]} label="Lore" type="textarea" rows="6" />
+          </.form>
+
+          <div class="flex gap-2 mt-4">
+            <button
+              phx-click="generate_lore"
+              class="btn btn-secondary btn-sm flex-1"
+              disabled={@generating_lore}
+            >
+              <span :if={@generating_lore} class="loading loading-spinner loading-xs"></span>
+              <.icon :if={!@generating_lore} name="hero-sparkles" class="w-4 h-4" /> Generate Lore
+            </button>
+            <button
+              phx-click="generate_artwork"
+              class="btn btn-accent btn-sm flex-1"
+              disabled={@generating_art}
+            >
+              <span :if={@generating_art} class="loading loading-spinner loading-xs"></span>
+              <.icon :if={!@generating_art} name="hero-paint-brush" class="w-4 h-4" /> Generate Art
+            </button>
+          </div>
+
+          <div :if={@selected_location.artwork_url} class="mt-4">
+            <img src={@selected_location.artwork_url} class="rounded-lg w-full" />
+          </div>
+
+          <div :if={@selected_location.stats["art_prompt"]} class="mt-4 p-3 bg-base-200 rounded-lg">
+            <p class="text-xs font-bold text-base-content/50 mb-1">Art Prompt</p>
+            <p class="text-xs text-base-content/70 italic">
+              {@selected_location.stats["art_prompt"]}
+            </p>
+          </div>
+
+          <div class="mt-4 pt-4 border-t border-base-content/10">
+            <p class="text-xs text-base-content/40">
+              Coords: ({Float.round(@selected_location.latitude, 2)}, {Float.round(
+                @selected_location.longitude,
+                2
+              )})
+            </p>
+            <button
+              phx-click="delete_location"
+              phx-value-id={@selected_location.id}
+              data-confirm="Delete this location?"
+              class="btn btn-ghost btn-xs text-error mt-2"
+            >
+              <.icon name="hero-trash" class="w-3 h-3" /> Delete Location
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+end

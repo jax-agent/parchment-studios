@@ -18,6 +18,10 @@ defmodule ParchmentStudiosWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+
+    live "/projects", ProjectsLive, :index
+    live "/projects/:project_id/maps/:map_id", MapEditorLive, :show
+    live "/projects/:project_id/maps/:map_id/book", GazetteerLive, :show
   end
 
   # Other scopes may use custom stacks.

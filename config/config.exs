@@ -9,7 +9,8 @@ import Config
 
 config :parchment_studios,
   ecto_repos: [ParchmentStudios.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  openrouter_api_key: System.get_env("OPENROUTER_API_KEY")
 
 # Configure the endpoint
 config :parchment_studios, ParchmentStudiosWeb.Endpoint,
