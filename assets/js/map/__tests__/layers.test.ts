@@ -71,7 +71,7 @@ describe('LayerManager', () => {
     it('addObject auto-generates id', () => {
       const obj = mgr.addObject('features', {
         type: 'stamp', x: 10, y: 20, width: 50, height: 50,
-        rotation: 0, scale: 1, opacity: 1, data: {},
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
       });
       expect(obj.id).toBeDefined();
       expect(obj.id.length).toBeGreaterThan(0);
@@ -80,7 +80,7 @@ describe('LayerManager', () => {
     it('removeObject returns removed object', () => {
       const added = mgr.addObject('features', {
         type: 'stamp', x: 0, y: 0, width: 10, height: 10,
-        rotation: 0, scale: 1, opacity: 1, data: {},
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
       });
       const removed = mgr.removeObject('features', added.id);
       expect(removed).toBeDefined();
@@ -95,7 +95,7 @@ describe('LayerManager', () => {
     it('moveObject updates x and y', () => {
       const obj = mgr.addObject('features', {
         type: 'stamp', x: 0, y: 0, width: 10, height: 10,
-        rotation: 0, scale: 1, opacity: 1, data: {},
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
       });
       mgr.moveObject('features', obj.id, 100, 200);
       const updated = mgr.getLayer('features')!.objects[0];
@@ -106,7 +106,7 @@ describe('LayerManager', () => {
     it('updateObject applies partial updates', () => {
       const obj = mgr.addObject('features', {
         type: 'stamp', x: 0, y: 0, width: 10, height: 10,
-        rotation: 0, scale: 1, opacity: 1, data: {},
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
       });
       mgr.updateObject('features', obj.id, { rotation: 45, scale: 2 });
       const updated = mgr.getLayer('features')!.objects[0];
@@ -120,7 +120,7 @@ describe('LayerManager', () => {
     it('returns objects for a layer', () => {
       mgr.addObject('features', {
         type: 'stamp', x: 10, y: 20, width: 50, height: 50,
-        rotation: 0, scale: 1, opacity: 1, data: {},
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
       });
       const objs = mgr.getObjects('features');
       expect(objs).toHaveLength(1);
@@ -134,7 +134,7 @@ describe('LayerManager', () => {
     it('returns a copy (mutation does not affect original)', () => {
       mgr.addObject('features', {
         type: 'stamp', x: 0, y: 0, width: 10, height: 10,
-        rotation: 0, scale: 1, opacity: 1, data: {},
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
       });
       const copy = mgr.getObjects('features');
       copy.pop();
@@ -198,7 +198,9 @@ describe('LayerManager', () => {
     it('toJSON/fromJSON roundtrip preserves state', () => {
       mgr.addObject('features', {
         type: 'stamp', x: 42, y: 99, width: 10, height: 10,
-        rotation: 15, scale: 1.5, opacity: 0.8, assetId: 'castle-01', data: { color: 'red' },
+        rotation: 15, scale: 1.5, opacity: 0.8,
+        stampLayers: [{ id: 'base-1', type: 'base', blendMode: 'normal', opacity: 1, visible: true, frames: [], fps: 0 }],
+        data: { tag: 'castle-01' },
       });
       mgr.setVisible('terrain', false);
       mgr.setOpacity('water', 0.7);
@@ -214,8 +216,9 @@ describe('LayerManager', () => {
       const featuresObjs = restored.getLayer('features')!.objects;
       expect(featuresObjs).toHaveLength(1);
       expect(featuresObjs[0].x).toBe(42);
-      expect(featuresObjs[0].assetId).toBe('castle-01');
-      expect(featuresObjs[0].data).toEqual({ color: 'red' });
+      expect(featuresObjs[0].stampLayers).toHaveLength(1);
+      expect(featuresObjs[0].stampLayers[0].type).toBe('base');
+      expect(featuresObjs[0].data).toEqual({ tag: 'castle-01' });
     });
   });
 });

@@ -59,10 +59,20 @@ export const MapEditorHook = {
         if (this._toolMode === 'stamp') {
           // Stamp mode: place a stamp at click position
           const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+          // Placeholder: single base layer (colored rect) until real art is loaded
           const cmd = new AddStampCommand(this._layers, 'features', {
             x: world.x - 20, y: world.y - 20,
             width: 40, height: 40,
-            color: '#8B4513', label: 'Stamp',
+            stampLayers: [{
+              id: `base-${Date.now()}`,
+              type: 'base' as const,
+              blendMode: 'normal' as const,
+              opacity: 1,
+              visible: true,
+              frames: [],
+              fps: 0,
+            }],
+            label: 'Stamp',
           });
           this._history.execute(cmd);
           this._renderer.requestRedraw();
@@ -70,7 +80,6 @@ export const MapEditorHook = {
             id: cmd.getAddedId(),
             x: world.x - 20, y: world.y - 20,
             width: 40, height: 40,
-            color: '#8B4513', label: 'Stamp',
           });
         } else {
           // Select mode: check for hit

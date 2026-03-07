@@ -251,8 +251,9 @@ export interface StampParams {
   y: number;
   width: number;
   height: number;
-  color: string;
-  label: string;
+  stampLayers: import('./types').StampLayer[];
+  label?: string;
+  loreId?: string;
 }
 
 export class AddStampCommand implements Command {
@@ -273,7 +274,8 @@ export class AddStampCommand implements Command {
       y: this.params.y,
       width: this.params.width,
       height: this.params.height,
-      color: this.params.color,
+      stampLayers: this.params.stampLayers,
+      loreId: this.params.loreId,
       label: this.params.label,
       rotation: 0,
       scale: 1,

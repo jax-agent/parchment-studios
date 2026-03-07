@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Fantasy Map Editor Interface</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#ca9b0c",
+                        "background-light": "#f8f8f5",
+                        "background-dark": "#1a1a1a",
+                    },
+                    fontFamily: {
+                        "display": ["Newsreader", "serif"]
+                    },
+                    borderRadius: { "DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+<style>
+        .glass-panel {
+            background: rgba(26, 26, 26, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(202, 155, 12, 0.15);
+        }
+        .vignette {
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.8);
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 overflow-hidden h-screen w-screen flex flex-col relative" style="--checkbox-tick-svg: url('data:image/svg+xml,%3csvg viewBox=%270 0 16 16%27 fill=%27%231a1a1a%27 xmlns=%27http://www.w3.org/2000/svg%27%3e%3cpath d=%27M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z%27/%3e%3c/svg%3e');">
+<!-- Top Navigation Bar -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-primary/20 px-8 py-3 bg-background-dark/90 backdrop-blur-md z-50">
+<div class="flex items-center gap-4 text-primary">
+<span class="material-symbols-outlined">map</span>
+<h2 class="text-primary text-xl font-bold leading-tight tracking-[-0.015em]">Eldoria World Map</h2>
+</div>
+<div class="flex flex-1 justify-end gap-8 items-center">
+<div class="flex items-center gap-4">
+<button class="flex items-center justify-center rounded-full h-8 w-8 bg-primary/10 hover:bg-primary/20 text-slate-100 transition-colors" title="Undo">
+<span class="material-symbols-outlined text-sm">undo</span>
+</button>
+<button class="flex items-center justify-center rounded-full h-8 w-8 bg-primary/10 hover:bg-primary/20 text-slate-100 transition-colors" title="Redo">
+<span class="material-symbols-outlined text-sm">redo</span>
+</button>
+</div>
+<div class="flex items-center gap-6">
+<span class="text-slate-300 text-sm font-medium leading-normal">Zoom: 125%</span>
+<div class="flex gap-2 bg-primary/10 rounded-full p-1 border border-primary/20">
+<button class="flex cursor-pointer items-center justify-center rounded-full h-8 w-8 hover:bg-primary/30 text-slate-100 transition-colors">
+<span class="material-symbols-outlined text-sm">zoom_out</span>
+</button>
+<button class="flex cursor-pointer items-center justify-center rounded-full h-8 w-8 hover:bg-primary/30 text-slate-100 transition-colors">
+<span class="material-symbols-outlined text-sm">zoom_in</span>
+</button>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Workspace -->
+<main class="flex-1 flex overflow-hidden relative">
+<!-- Left Toolbar -->
+<aside class="w-16 flex flex-col items-center py-6 gap-6 glass-panel border-r z-40 relative">
+<div class="flex flex-col gap-4">
+<button class="flex items-center justify-center rounded-lg p-3 text-slate-300 hover:text-primary hover:bg-primary/10 transition-colors group relative">
+<span class="material-symbols-outlined">arrow_selector_tool</span>
+<span class="absolute left-full ml-2 px-2 py-1 bg-background-dark text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none border border-primary/20">Select</span>
+</button>
+<button class="flex items-center justify-center rounded-lg p-3 bg-primary/20 text-primary border border-primary/30 transition-colors group relative">
+<span class="material-symbols-outlined">brush</span>
+<span class="absolute left-full ml-2 px-2 py-1 bg-background-dark text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none border border-primary/20">Brush</span>
+</button>
+<button class="flex items-center justify-center rounded-lg p-3 text-slate-300 hover:text-primary hover:bg-primary/10 transition-colors group relative">
+<span class="material-symbols-outlined">ink_marker</span>
+<span class="absolute left-full ml-2 px-2 py-1 bg-background-dark text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none border border-primary/20">Stamp</span>
+</button>
+<button class="flex items-center justify-center rounded-lg p-3 text-slate-300 hover:text-primary hover:bg-primary/10 transition-colors group relative">
+<span class="material-symbols-outlined">match_case</span>
+<span class="absolute left-full ml-2 px-2 py-1 bg-background-dark text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none border border-primary/20">Text</span>
+</button>
+<div class="w-8 h-px bg-primary/20 my-2 mx-auto"></div>
+<button class="flex items-center justify-center rounded-lg p-3 text-slate-300 hover:text-primary hover:bg-primary/10 transition-colors group relative">
+<span class="material-symbols-outlined">pan_tool</span>
+<span class="absolute left-full ml-2 px-2 py-1 bg-background-dark text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none border border-primary/20">Pan</span>
+</button>
+</div>
+<div class="mt-auto flex flex-col gap-4">
+<button class="flex items-center justify-center rounded-lg p-3 text-slate-300 hover:text-primary hover:bg-primary/10 transition-colors group relative">
+<span class="material-symbols-outlined">settings</span>
+<span class="absolute left-full ml-2 px-2 py-1 bg-background-dark text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none border border-primary/20">Settings</span>
+</button>
+</div>
+</aside>
+<!-- Center Canvas -->
+<div class="flex-1 relative overflow-hidden bg-[#2a261c] flex items-center justify-center vignette">
+<!-- Simulated Parchment Map Background -->
+<div class="absolute inset-0 bg-cover bg-center opacity-80" data-alt="Hand-drawn fantasy map on aged parchment" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDHTb0xntvqfDPnlGIPAEm7HJERnrRR4uV_ChLdw7MFAuI7rhd914sKhZApI7y0PTmH0KDAMxfjg4MyG0CAut4DvwP8AQARjZzN-mfoDnx0a-yfdr_IdjXyA9Iw1GIg8zZOGMq5mMqMr91xnQ4U_MNp9bwnsoMk86aOxrTkX5YW_2flaQtlSAtvtG4ahB-DjtpngN3dhm-Js5u_HkCPvLDyngZZHxeRFahRp94b5r6vBuIn2-lzaGD5DEaIxagRjH0CdVTXof0Aqza8'); filter: sepia(0.6) hue-rotate(-10deg) saturate(0.8) brightness(0.9);">
+</div>
+<!-- Floating Navigation Controls -->
+<div class="absolute top-6 right-[340px] flex flex-col items-end gap-3 z-30">
+<div class="flex flex-col gap-[2px] rounded-full overflow-hidden border border-primary/20 shadow-lg">
+<button class="flex h-10 w-10 items-center justify-center bg-background-dark/80 hover:bg-primary/20 backdrop-blur-md text-slate-200 transition-colors">
+<span class="material-symbols-outlined">add</span>
+</button>
+<button class="flex h-10 w-10 items-center justify-center bg-background-dark/80 hover:bg-primary/20 backdrop-blur-md text-slate-200 transition-colors">
+<span class="material-symbols-outlined">remove</span>
+</button>
+</div>
+<button class="flex h-10 w-10 items-center justify-center rounded-full bg-background-dark/80 hover:bg-primary/20 backdrop-blur-md text-slate-200 border border-primary/20 shadow-lg transition-colors">
+<span class="material-symbols-outlined">near_me</span>
+</button>
+</div>
+<!-- Bottom Dock -->
+<div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 glass-panel rounded-[2rem] p-2 flex flex-col gap-2 shadow-2xl z-40 max-w-2xl w-full">
+<div class="flex justify-center gap-6 px-4 py-2 border-b border-primary/10">
+<button class="text-primary text-sm font-bold border-b-2 border-primary pb-1">Settlements</button>
+<button class="text-slate-400 hover:text-slate-200 text-sm font-medium pb-1 transition-colors">Terrain</button>
+<button class="text-slate-400 hover:text-slate-200 text-sm font-medium pb-1 transition-colors">Vegetation</button>
+<button class="text-slate-400 hover:text-slate-200 text-sm font-medium pb-1 transition-colors">Monsters</button>
+<button class="text-slate-400 hover:text-slate-200 text-sm font-medium pb-1 transition-colors">Icons</button>
+</div>
+<div class="flex gap-3 px-4 py-2 overflow-x-auto no-scrollbar">
+<button class="flex-shrink-0 w-16 h-16 rounded-xl bg-background-dark/50 border border-primary/30 hover:border-primary flex items-center justify-center transition-all">
+<span class="material-symbols-outlined text-primary text-3xl">castle</span>
+</button>
+<button class="flex-shrink-0 w-16 h-16 rounded-xl bg-background-dark/30 border border-transparent hover:border-primary/50 hover:bg-background-dark/50 flex items-center justify-center transition-all">
+<span class="material-symbols-outlined text-slate-300 text-3xl">home</span>
+</button>
+<button class="flex-shrink-0 w-16 h-16 rounded-xl bg-background-dark/30 border border-transparent hover:border-primary/50 hover:bg-background-dark/50 flex items-center justify-center transition-all">
+<span class="material-symbols-outlined text-slate-300 text-3xl">fort</span>
+</button>
+<button class="flex-shrink-0 w-16 h-16 rounded-xl bg-background-dark/30 border border-transparent hover:border-primary/50 hover:bg-background-dark/50 flex items-center justify-center transition-all">
+<span class="material-symbols-outlined text-slate-300 text-3xl">church</span>
+</button>
+<button class="flex-shrink-0 w-16 h-16 rounded-xl bg-background-dark/30 border border-transparent hover:border-primary/50 hover:bg-background-dark/50 flex items-center justify-center transition-all">
+<span class="material-symbols-outlined text-slate-300 text-3xl">cell_tower</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Right Layers Panel -->
+<aside class="w-80 glass-panel border-l flex flex-col z-40 relative">
+<div class="px-6 py-5 border-b border-primary/20 flex justify-between items-center">
+<h3 class="text-primary text-lg font-bold tracking-wide">Layers</h3>
+<div class="flex gap-2">
+<button class="text-slate-400 hover:text-slate-200"><span class="material-symbols-outlined text-sm">create_new_folder</span></button>
+<button class="text-slate-400 hover:text-slate-200"><span class="material-symbols-outlined text-sm">add_box</span></button>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-2">
+<!-- Layer Item -->
+<div class="flex items-center justify-between p-3 rounded-xl bg-primary/10 border border-primary/20 cursor-pointer">
+<div class="flex items-center gap-3">
+<button class="text-primary hover:text-primary/80"><span class="material-symbols-outlined text-sm">visibility</span></button>
+<span class="text-slate-100 text-sm font-medium">Effects</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400">100%</span>
+<button class="text-slate-500 hover:text-slate-300"><span class="material-symbols-outlined text-sm">lock_open</span></button>
+</div>
+</div>
+<!-- Layer Item -->
+<div class="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/10 cursor-pointer transition-colors">
+<div class="flex items-center gap-3">
+<button class="text-slate-400 hover:text-slate-200"><span class="material-symbols-outlined text-sm">visibility</span></button>
+<span class="text-slate-300 text-sm font-medium">Labels</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400">100%</span>
+<button class="text-slate-500 hover:text-slate-300"><span class="material-symbols-outlined text-sm">lock_open</span></button>
+</div>
+</div>
+<!-- Layer Item -->
+<div class="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/10 cursor-pointer transition-colors">
+<div class="flex items-center gap-3">
+<button class="text-slate-400 hover:text-slate-200"><span class="material-symbols-outlined text-sm">visibility</span></button>
+<span class="text-slate-300 text-sm font-medium">Features</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400">80%</span>
+<button class="text-slate-500 hover:text-slate-300"><span class="material-symbols-outlined text-sm">lock_open</span></button>
+</div>
+</div>
+<!-- Layer Item - Locked -->
+<div class="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/10 cursor-pointer transition-colors">
+<div class="flex items-center gap-3">
+<button class="text-slate-400 hover:text-slate-200"><span class="material-symbols-outlined text-sm">visibility</span></button>
+<span class="text-slate-300 text-sm font-medium">Water</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400">100%</span>
+<button class="text-primary hover:text-primary/80"><span class="material-symbols-outlined text-sm">lock</span></button>
+</div>
+</div>
+<!-- Layer Item -->
+<div class="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/10 cursor-pointer transition-colors">
+<div class="flex items-center gap-3">
+<button class="text-slate-400 hover:text-slate-200"><span class="material-symbols-outlined text-sm">visibility</span></button>
+<span class="text-slate-300 text-sm font-medium">Terrain</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400">100%</span>
+<button class="text-slate-500 hover:text-slate-300"><span class="material-symbols-outlined text-sm">lock_open</span></button>
+</div>
+</div>
+</div>
+<!-- Layer Opacity Slider (Contextual) -->
+<div class="p-4 border-t border-primary/20 bg-background-dark/50">
+<div class="flex justify-between items-center mb-2">
+<span class="text-xs text-slate-400 font-medium">Opacity</span>
+<span class="text-xs text-primary font-bold">100%</span>
+</div>
+<input class="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-primary" max="100" min="0" type="range" value="100"/>
+</div>
+</aside>
+</main>
+</body></html>

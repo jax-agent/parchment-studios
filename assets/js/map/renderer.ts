@@ -188,12 +188,10 @@ export class MapRenderer {
               canvas.drawText(text, 0, obj.height / 2, paint, this.font);
             }
           } else {
-            // Stamps, paths, regions: render as colored rectangles (placeholder)
-            let cr = r, cg = g, cb = b;
-            if (obj.color) {
-              [cr, cg, cb] = this.parseHexColor(obj.color);
-            }
-            paint.setColor(ck.Color(cr, cg, cb, 255));
+            // Stamps, paths, regions: render placeholder colored rect.
+            // M0.2 will composite stampLayers properly; for now use a
+            // layer-type-based fallback color (parchment brown for stamps).
+            paint.setColor(ck.Color(r, g, b, 255));
             paint.setStyle(ck.PaintStyle.Fill);
             const rect = ck.LTRBRect(0, 0, obj.width, obj.height);
             canvas.drawRect(rect, paint);

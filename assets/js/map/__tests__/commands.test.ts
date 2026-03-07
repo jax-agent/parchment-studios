@@ -1,7 +1,20 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CommandHistory, AddObjectCommand, RemoveObjectCommand, MoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, ReorderLayerCommand, AddLayerCommand, RemoveLayerCommand, AddStampCommand } from '../commands';
 import { LayerManager } from '../layers';
-import type { Command, MapObject } from '../types';
+import type { Command, MapObject, StampLayer } from '../types';
+
+/** Helper: create a minimal base StampLayer for tests */
+function makeStampLayer(id: string): StampLayer {
+  return {
+    id,
+    type: 'base',
+    blendMode: 'normal',
+    opacity: 1,
+    visible: true,
+    frames: [],
+    fps: 0,
+  };
+}
 
 describe('CommandHistory', () => {
   let history: CommandHistory;
@@ -107,7 +120,7 @@ describe('Concrete Commands', () => {
     it('adds an object to a layer and undoes it', () => {
       const obj: Omit<MapObject, 'id'> = {
         type: 'stamp', x: 10, y: 20, width: 50, height: 50,
-        rotation: 0, scale: 1, opacity: 1, data: {},
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
       };
       const cmd = new AddObjectCommand(layers, 'features', obj);
       cmd.execute();
@@ -125,7 +138,7 @@ describe('Concrete Commands', () => {
     it('removes an object and restores it on undo', () => {
       const added = layers.addObject('features', {
         type: 'stamp', x: 5, y: 5, width: 10, height: 10,
-        rotation: 0, scale: 1, opacity: 1, data: {},
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
       });
       const cmd = new RemoveObjectCommand(layers, 'features', added.id);
       cmd.execute();
@@ -141,7 +154,7 @@ describe('Concrete Commands', () => {
     it('moves an object and undoes the move', () => {
       const added = layers.addObject('features', {
         type: 'stamp', x: 0, y: 0, width: 10, height: 10,
-        rotation: 0, scale: 1, opacity: 1, data: {},
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
       });
       const cmd = new MoveObjectCommand(layers, 'features', added.id, 100, 200);
       cmd.execute();
@@ -205,8 +218,9 @@ describe('Concrete Commands', () => {
 
   describe('AddStampCommand', () => {
     it('adds stamp to features layer with correct fields', () => {
+      const layers_ = [makeStampLayer('base-1')];
       const cmd = new AddStampCommand(layers, 'features', {
-        x: 100, y: 200, width: 40, height: 40, color: '#8B4513', label: 'Stamp',
+        x: 100, y: 200, width: 40, height: 40, stampLayers: layers_, label: 'Stamp',
       });
       cmd.execute();
 
@@ -217,13 +231,26 @@ describe('Concrete Commands', () => {
       expect(objs[0].y).toBe(200);
       expect(objs[0].width).toBe(40);
       expect(objs[0].height).toBe(40);
-      expect(objs[0].color).toBe('#8B4513');
+      expect(objs[0].stampLayers).toHaveLength(1);
+      expect(objs[0].stampLayers[0].type).toBe('base');
       expect(objs[0].label).toBe('Stamp');
+    });
+
+    it('stores loreId when provided', () => {
+      const cmd = new AddStampCommand(layers, 'features', {
+        x: 0, y: 0, width: 40, height: 40,
+        stampLayers: [makeStampLayer('base-1')],
+        loreId: 'lore-abc',
+        label: 'City',
+      });
+      cmd.execute();
+      const obj = layers.getLayer('features')!.objects[0];
+      expect(obj.loreId).toBe('lore-abc');
     });
 
     it('getAddedId returns the created object ID', () => {
       const cmd = new AddStampCommand(layers, 'features', {
-        x: 0, y: 0, width: 40, height: 40, color: '#FF0000', label: 'Test',
+        x: 0, y: 0, width: 40, height: 40, stampLayers: [], label: 'Test',
       });
       expect(cmd.getAddedId()).toBeNull();
       cmd.execute();
@@ -233,7 +260,7 @@ describe('Concrete Commands', () => {
 
     it('undo removes the stamp and clears addedId', () => {
       const cmd = new AddStampCommand(layers, 'features', {
-        x: 50, y: 50, width: 40, height: 40, color: '#00FF00', label: 'Undo',
+        x: 50, y: 50, width: 40, height: 40, stampLayers: [], label: 'Undo',
       });
       cmd.execute();
       expect(layers.getLayer('features')!.objects).toHaveLength(1);
@@ -246,7 +273,7 @@ describe('Concrete Commands', () => {
     it('redo re-adds the stamp via CommandHistory', () => {
       const history = new CommandHistory();
       const cmd = new AddStampCommand(layers, 'features', {
-        x: 10, y: 10, width: 40, height: 40, color: '#0000FF', label: 'Redo',
+        x: 10, y: 10, width: 40, height: 40, stampLayers: [], label: 'Redo',
       });
       history.execute(cmd);
       expect(layers.getLayer('features')!.objects).toHaveLength(1);
@@ -259,13 +286,14 @@ describe('Concrete Commands', () => {
     });
 
     it('toJSON serializes correctly', () => {
-      const params = { x: 10, y: 20, width: 40, height: 40, color: '#123456', label: 'Test' };
+      const stampLayers = [makeStampLayer('base-1')];
+      const params = { x: 10, y: 20, width: 40, height: 40, stampLayers, label: 'Test' };
       const cmd = new AddStampCommand(layers, 'features', params);
       cmd.execute();
       const json = cmd.toJSON() as any;
       expect(json.type).toBe('add_stamp');
       expect(json.layerId).toBe('features');
-      expect(json.params).toEqual(params);
+      expect(json.params.stampLayers).toHaveLength(1);
       expect(json.addedId).toBeDefined();
     });
   });

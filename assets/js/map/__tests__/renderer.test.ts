@@ -69,7 +69,7 @@ describe('hitTest', () => {
     return {
       id: `obj-${x}-${y}`,
       type: 'stamp', x, y, width: w, height: h,
-      rotation: 0, scale: 1, opacity: 1, data: {},
+      rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
     };
   }
 
