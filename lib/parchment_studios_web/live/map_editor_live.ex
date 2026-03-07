@@ -6,6 +6,28 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
 
   @location_types ParchmentStudios.Worlds.Location.location_types()
 
+  @default_layers [
+    %{
+      id: "terrain",
+      name: "Terrain",
+      visible: true,
+      locked: false,
+      opacity: 1.0,
+      type: "terrain"
+    },
+    %{id: "water", name: "Water", visible: true, locked: false, opacity: 1.0, type: "water"},
+    %{
+      id: "features",
+      name: "Features",
+      visible: true,
+      locked: false,
+      opacity: 1.0,
+      type: "features"
+    },
+    %{id: "labels", name: "Labels", visible: true, locked: false, opacity: 1.0, type: "labels"},
+    %{id: "effects", name: "Effects", visible: true, locked: false, opacity: 1.0, type: "effects"}
+  ]
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -19,7 +41,10 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        location_form: nil,
        generating_lore: false,
        generating_art: false,
-       location_types: @location_types
+       location_types: @location_types,
+       layer_panel_open: true,
+       layers: @default_layers,
+       active_layer: "features"
      )}
   end
 
@@ -181,6 +206,105 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
      |> push_event("locations_updated", %{locations: encode_locations(locations)})}
   end
 
+  def handle_event("toggle_layer_panel", _params, socket) do
+    {:noreply, assign(socket, layer_panel_open: !socket.assigns.layer_panel_open)}
+  end
+
+  def handle_event("toggle_layer_visibility", %{"id" => id}, socket) do
+    layers =
+      Enum.map(socket.assigns.layers, fn layer ->
+        if layer.id == id, do: %{layer | visible: !layer.visible}, else: layer
+      end)
+
+    toggled = Enum.find(layers, &(&1.id == id))
+
+    {:noreply,
+     socket
+     |> assign(layers: layers)
+     |> push_event("layer_visibility_changed", %{id: id, visible: toggled.visible})}
+  end
+
+  def handle_event("set_active_layer", %{"id" => id}, socket) do
+    {:noreply, assign(socket, active_layer: id)}
+  end
+
+  def handle_event("set_layer_opacity", %{"id" => id, "opacity" => opacity}, socket) do
+    {opacity_val, _} = Float.parse(opacity)
+
+    layers =
+      Enum.map(socket.assigns.layers, fn layer ->
+        if layer.id == id, do: %{layer | opacity: opacity_val}, else: layer
+      end)
+
+    {:noreply,
+     socket
+     |> assign(layers: layers)
+     |> push_event("layer_opacity_changed", %{id: id, opacity: opacity_val})}
+  end
+
+  def handle_event("toggle_layer_lock", %{"id" => id}, socket) do
+    layers =
+      Enum.map(socket.assigns.layers, fn layer ->
+        if layer.id == id, do: %{layer | locked: !layer.locked}, else: layer
+      end)
+
+    {:noreply, assign(socket, layers: layers)}
+  end
+
+  def handle_event("add_layer", _params, socket) do
+    new_id = "custom-#{System.unique_integer([:positive])}"
+
+    new_layer = %{
+      id: new_id,
+      name: "Custom Layer",
+      visible: true,
+      locked: false,
+      opacity: 1.0,
+      type: "custom"
+    }
+
+    {:noreply, assign(socket, layers: socket.assigns.layers ++ [new_layer])}
+  end
+
+  def handle_event("remove_layer", %{"id" => id}, socket) do
+    layers = Enum.reject(socket.assigns.layers, &(&1.id == id))
+
+    active_layer =
+      if socket.assigns.active_layer == id do
+        case layers do
+          [first | _] -> first.id
+          [] -> nil
+        end
+      else
+        socket.assigns.active_layer
+      end
+
+    {:noreply, assign(socket, layers: layers, active_layer: active_layer)}
+  end
+
+  def handle_event("reorder_layer", %{"id" => id, "direction" => direction}, socket) do
+    layers = socket.assigns.layers
+    idx = Enum.find_index(layers, &(&1.id == id))
+
+    new_layers =
+      cond do
+        direction == "up" && idx != nil && idx > 0 ->
+          layers
+          |> List.replace_at(idx, Enum.at(layers, idx - 1))
+          |> List.replace_at(idx - 1, Enum.at(layers, idx))
+
+        direction == "down" && idx != nil && idx < length(layers) - 1 ->
+          layers
+          |> List.replace_at(idx, Enum.at(layers, idx + 1))
+          |> List.replace_at(idx + 1, Enum.at(layers, idx))
+
+        true ->
+          layers
+      end
+
+    {:noreply, assign(socket, layers: new_layers)}
+  end
+
   defp encode_locations(locations) do
     Enum.map(locations, fn loc ->
       %{
@@ -249,9 +373,127 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
           </p>
         </div>
 
+        <%!-- Layer Panel --%>
+        <div
+          :if={@layer_panel_open}
+          class="absolute top-16 left-4 z-[1000] w-56 bg-base-100/95 backdrop-blur rounded-lg shadow-lg border border-base-content/10"
+        >
+          <div class="flex items-center justify-between px-3 py-2 border-b border-base-content/10">
+            <span class="text-xs font-bold font-serif tracking-wide text-base-content/60">
+              LAYERS
+            </span>
+            <div class="flex gap-1">
+              <button
+                phx-click="add_layer"
+                class="btn btn-ghost btn-xs btn-square"
+                title="Add layer"
+              >
+                <.icon name="hero-plus" class="w-3 h-3" />
+              </button>
+              <button
+                phx-click="toggle_layer_panel"
+                class="btn btn-ghost btn-xs btn-square"
+                title="Close layers"
+              >
+                <.icon name="hero-x-mark" class="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+          <div class="max-h-64 overflow-y-auto">
+            <div
+              :for={layer <- Enum.reverse(@layers)}
+              class={"flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-base-200 #{if @active_layer == layer.id, do: "bg-primary/10 border-l-2 border-primary", else: "border-l-2 border-transparent"}"}
+              phx-click="set_active_layer"
+              phx-value-id={layer.id}
+            >
+              <button
+                phx-click="toggle_layer_visibility"
+                phx-value-id={layer.id}
+                class="btn btn-ghost btn-xs btn-square"
+                title={if layer.visible, do: "Hide layer", else: "Show layer"}
+              >
+                <.icon
+                  name={if layer.visible, do: "hero-eye", else: "hero-eye-slash"}
+                  class="w-3.5 h-3.5"
+                />
+              </button>
+              <button
+                phx-click="toggle_layer_lock"
+                phx-value-id={layer.id}
+                class="btn btn-ghost btn-xs btn-square"
+                title={if layer.locked, do: "Unlock layer", else: "Lock layer"}
+              >
+                <.icon
+                  name={if layer.locked, do: "hero-lock-closed", else: "hero-lock-open"}
+                  class={"w-3 h-3 #{if layer.locked, do: "text-warning", else: "text-base-content/30"}"}
+                />
+              </button>
+              <span class="flex-1 text-xs font-medium truncate">{layer.name}</span>
+              <div class="flex gap-0.5">
+                <button
+                  phx-click="reorder_layer"
+                  phx-value-id={layer.id}
+                  phx-value-direction="up"
+                  class="btn btn-ghost btn-xs btn-square"
+                  title="Move up"
+                >
+                  <.icon name="hero-chevron-up" class="w-3 h-3" />
+                </button>
+                <button
+                  phx-click="reorder_layer"
+                  phx-value-id={layer.id}
+                  phx-value-direction="down"
+                  class="btn btn-ghost btn-xs btn-square"
+                  title="Move down"
+                >
+                  <.icon name="hero-chevron-down" class="w-3 h-3" />
+                </button>
+                <button
+                  phx-click="remove_layer"
+                  phx-value-id={layer.id}
+                  class="btn btn-ghost btn-xs btn-square text-error/50 hover:text-error"
+                  title="Delete layer"
+                >
+                  <.icon name="hero-trash" class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <%!-- Opacity slider for active layer --%>
+          <div class="px-3 py-2 border-t border-base-content/10">
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] text-base-content/40 w-12">Opacity</span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={
+                  Enum.find(@layers, &(&1.id == @active_layer)) &&
+                    Enum.find(@layers, &(&1.id == @active_layer)).opacity
+                }
+                phx-change="set_layer_opacity"
+                phx-value-id={@active_layer}
+                name="opacity"
+                class="range range-xs range-primary flex-1"
+              />
+            </div>
+          </div>
+        </div>
+
+        <%!-- Layer panel toggle (when closed) --%>
+        <button
+          :if={!@layer_panel_open}
+          phx-click="toggle_layer_panel"
+          class="absolute top-16 left-4 z-[1000] btn btn-sm bg-base-100/95 backdrop-blur shadow border-base-content/10"
+          title="Show layers"
+        >
+          <.icon name="hero-squares-2x2" class="w-4 h-4" /> Layers
+        </button>
+
         <div
           id="map-container"
-          phx-hook="MapHook"
+          phx-hook="MapEditorHook"
           phx-update="ignore"
           data-locations={Jason.encode!(encode_locations(@locations))}
           class="w-full h-full"

@@ -1,5 +1,15 @@
 {
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "copy:wasm": "mkdir -p ../priv/static/wasm && cp node_modules/canvaskit-wasm/bin/canvaskit.wasm ../priv/static/wasm/",
+    "postinstall": "npm run copy:wasm"
+  },
   "dependencies": {
-    "leaflet": "^1.9.4"
+    "canvaskit-wasm": "^0.40.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }

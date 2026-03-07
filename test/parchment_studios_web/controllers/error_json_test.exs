@@ -2,7 +2,9 @@ defmodule ParchmentStudiosWeb.ErrorJSONTest do
   use ParchmentStudiosWeb.ConnCase, async: true
 
   test "renders 404" do
-    assert ParchmentStudiosWeb.ErrorJSON.render("404.json", %{}) == %{errors: %{detail: "Not Found"}}
+    assert ParchmentStudiosWeb.ErrorJSON.render("404.json", %{}) == %{
+             errors: %{detail: "Not Found"}
+           }
   end
 
   test "renders 500" do

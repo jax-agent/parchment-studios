@@ -1,0 +1,194 @@
+import { MapRenderer, Viewport } from './renderer';
+import { LayerManager } from './layers';
+import { CommandHistory, MoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand } from './commands';
+import type { MapObject } from './types';
+
+interface HookContext {
+  el: HTMLElement;
+  pushEvent: (event: string, payload: object) => void;
+  handleEvent: (event: string, callback: (payload: any) => void) => void;
+}
+
+export const MapEditorHook = {
+  mounted(this: HookContext & Record<string, any>) {
+    const container = this.el;
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    container.appendChild(canvas);
+
+    // Resize canvas to match container
+    const resize = () => {
+      canvas.width = container.clientWidth;
+      canvas.height = container.clientHeight;
+      if (this._renderer) {
+        this._renderer.requestRedraw();
+      }
+    };
+    resize();
+    this._resizeObserver = new ResizeObserver(resize);
+    this._resizeObserver.observe(container);
+
+    this._layers = new LayerManager();
+    this._history = new CommandHistory();
+    this._renderer = new MapRenderer();
+    this._selectedObject = null as MapObject | null;
+    this._isDragging = false;
+    this._isPanning = false;
+    this._dragStartX = 0;
+    this._dragStartY = 0;
+    this._dragObjStartX = 0;
+    this._dragObjStartY = 0;
+
+    // Init CanvasKit (async)
+    this._renderer.init(canvas).then(() => {
+      this._renderer.startRenderLoop(() => this._layers.getLayers());
+      this._renderer.requestRedraw();
+    });
+
+    // Mouse events
+    const viewport = (): Viewport => this._renderer.getViewport();
+
+    canvas.addEventListener('mousedown', (e: MouseEvent) => {
+      if (e.button === 0) {
+        // Left click: check for hit
+        const hit = viewport().hitTest(e.offsetX, e.offsetY, this._layers.getLayers());
+        if (hit) {
+          this._selectedObject = hit;
+          this._isDragging = true;
+          this._dragStartX = e.offsetX;
+          this._dragStartY = e.offsetY;
+          this._dragObjStartX = hit.x;
+          this._dragObjStartY = hit.y;
+          this.pushEvent('object_selected', { id: hit.id });
+        } else {
+          this._selectedObject = null;
+          this._isPanning = true;
+          this._dragStartX = e.offsetX;
+          this._dragStartY = e.offsetY;
+        }
+      } else if (e.button === 1) {
+        // Middle click: pan
+        e.preventDefault();
+        this._isPanning = true;
+        this._dragStartX = e.offsetX;
+        this._dragStartY = e.offsetY;
+      }
+    });
+
+    canvas.addEventListener('mousemove', (e: MouseEvent) => {
+      if (this._isPanning) {
+        const dx = e.offsetX - this._dragStartX;
+        const dy = e.offsetY - this._dragStartY;
+        viewport().pan(dx, dy);
+        this._dragStartX = e.offsetX;
+        this._dragStartY = e.offsetY;
+        this._renderer.requestRedraw();
+      } else if (this._isDragging && this._selectedObject) {
+        const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+        const startWorld = viewport().screenToWorld(this._dragStartX, this._dragStartY);
+        const newX = this._dragObjStartX + (world.x - startWorld.x);
+        const newY = this._dragObjStartY + (world.y - startWorld.y);
+        // Live preview (direct move, no command yet)
+        const layerId = this._findLayerForObject(this._selectedObject.id);
+        if (layerId) {
+          this._layers.moveObject(layerId, this._selectedObject.id, newX, newY);
+          this._renderer.requestRedraw();
+        }
+      }
+    });
+
+    canvas.addEventListener('mouseup', (e: MouseEvent) => {
+      if (this._isDragging && this._selectedObject) {
+        const obj = this._selectedObject;
+        const layerId = this._findLayerForObject(obj.id);
+        if (layerId && (obj.x !== this._dragObjStartX || obj.y !== this._dragObjStartY)) {
+          // Reset to start position, then execute command (so undo works correctly)
+          const finalX = obj.x;
+          const finalY = obj.y;
+          this._layers.moveObject(layerId, obj.id, this._dragObjStartX, this._dragObjStartY);
+          const cmd = new MoveObjectCommand(this._layers, layerId, obj.id, finalX, finalY);
+          this._history.execute(cmd);
+          this._renderer.requestRedraw();
+        }
+      }
+      this._isDragging = false;
+      this._isPanning = false;
+    });
+
+    canvas.addEventListener('wheel', (e: WheelEvent) => {
+      e.preventDefault();
+      const currentZoom = viewport().getZoom();
+      const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1;
+      const newZoom = Math.max(0.1, Math.min(10, currentZoom * zoomDelta));
+      viewport().zoomTo(newZoom, e.offsetX, e.offsetY);
+      this._renderer.requestRedraw();
+    }, { passive: false });
+
+    // Prevent context menu on middle click
+    canvas.addEventListener('contextmenu', (e: MouseEvent) => {
+      e.preventDefault();
+    });
+
+    // Keyboard shortcuts
+    const keyHandler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          this._history.redo();
+        } else {
+          this._history.undo();
+        }
+        this._renderer.requestRedraw();
+      }
+    };
+    window.addEventListener('keydown', keyHandler);
+    this._keyHandler = keyHandler;
+
+    // LiveView push event handlers
+    this.handleEvent('layer_visibility_changed', (data: { id: string; visible: boolean }) => {
+      this._layers.setVisible(data.id, data.visible);
+      this._renderer.requestRedraw();
+    });
+
+    this.handleEvent('layer_opacity_changed', (data: { id: string; opacity: number }) => {
+      this._layers.setOpacity(data.id, data.opacity);
+      this._renderer.requestRedraw();
+    });
+
+    this.handleEvent('map_state', (data: { layers: any }) => {
+      if (data.layers) {
+        this._layers.fromJSON(data);
+        this._renderer.requestRedraw();
+      }
+    });
+
+    this.handleEvent('locations_updated', (_data: any) => {
+      // Placeholder for future location sync
+      this._renderer.requestRedraw();
+    });
+  },
+
+  destroyed(this: HookContext & Record<string, any>) {
+    if (this._renderer) {
+      this._renderer.destroy();
+    }
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+    }
+    if (this._keyHandler) {
+      window.removeEventListener('keydown', this._keyHandler);
+    }
+  },
+
+  // Helper: find which layer contains an object
+  _findLayerForObject(this: Record<string, any>, objectId: string): string | null {
+    for (const layer of this._layers.getLayers()) {
+      if (layer.objects.some((o: MapObject) => o.id === objectId)) {
+        return layer.id;
+      }
+    }
+    return null;
+  },
+};
