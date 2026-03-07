@@ -58,6 +58,7 @@ defmodule ParchmentStudios.MixProject do
        app: false,
        compile: false,
        depth: 1},
+      {:oban, "~> 2.19"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
