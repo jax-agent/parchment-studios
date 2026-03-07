@@ -1,6 +1,6 @@
 import { MapRenderer, Viewport } from './renderer';
 import { LayerManager } from './layers';
-import { CommandHistory, MoveObjectCommand, AddStampCommand } from './commands';
+import { CommandHistory, MoveObjectCommand, AddStampCommand, RemoveObjectCommand } from './commands';
 import type { MapObject, MapState, ToolMode } from './types';
 
 interface HookContext {
@@ -188,6 +188,27 @@ export const MapEditorHook = {
           this._history.undo();
         }
         this._renderer.requestRedraw();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        // Ctrl+Y / Cmd+Y = redo (Windows/Linux convention)
+        e.preventDefault();
+        this._history.redo();
+        this._renderer.requestRedraw();
+      } else if (e.key === 'Escape') {
+        // Escape = deselect
+        this._selectedObject = null;
+        this._isDragging = false;
+        this._renderer.requestRedraw();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Delete = remove selected stamp (undoable)
+        if (this._selectedObject) {
+          const layerId = this._findLayerForObject(this._selectedObject.id);
+          if (layerId) {
+            const cmd = new RemoveObjectCommand(this._layers, layerId, this._selectedObject.id);
+            this._history.execute(cmd);
+            this._selectedObject = null;
+            this._renderer.requestRedraw();
+          }
+        }
       }
     };
     window.addEventListener('keydown', keyHandler);
