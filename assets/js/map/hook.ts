@@ -119,6 +119,8 @@ export const MapEditorHook = {
             id: cmd.getAddedId(),
             x: world.x - size / 2, y: world.y - size / 2,
             width: size, height: size,
+            name: label,
+            asset_category: this._activeStampAsset?.category ?? 'unknown',
           });
         } else {
           // Select mode: check for hit
@@ -130,7 +132,7 @@ export const MapEditorHook = {
             this._dragStartY = e.offsetY;
             this._dragObjStartX = hit.x;
             this._dragObjStartY = hit.y;
-            this.pushEvent('object_selected', { id: hit.id });
+            this.pushEvent('object_selected', { id: hit.id, lore_id: hit.loreId ?? null });
           } else {
             this._selectedObject = null;
             this._isPanning = true;
@@ -274,6 +276,22 @@ export const MapEditorHook = {
     this.handleEvent('locations_updated', (_data: any) => {
       // Placeholder for future location sync
       this._renderer.requestRedraw();
+    });
+
+    // When server creates a LoreEntry for a stamp, update the MapObject's loreId
+    this.handleEvent('lore_entry_created', (data: { stamp_id: string; lore_id: string }) => {
+      // Find which layer holds this stamp and update its loreId
+      for (const layer of this._layers.getLayers()) {
+        const obj = layer.objects.find((o: MapObject) => o.id === data.stamp_id);
+        if (obj) {
+          this._layers.updateObject(layer.id, data.stamp_id, { loreId: data.lore_id });
+          // Update selected reference if this is the currently selected object
+          if (this._selectedObject?.id === data.stamp_id) {
+            this._selectedObject = { ...this._selectedObject, loreId: data.lore_id };
+          }
+          break;
+        }
+      }
     });
   },
 

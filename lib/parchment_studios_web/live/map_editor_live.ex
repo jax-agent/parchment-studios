@@ -52,7 +52,10 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        active_asset_category: "settlements",
        active_stamp_asset: nil,
        # Light angle: -π/4 = classic top-left fantasy lighting (degrees for slider: -45)
-       light_angle_deg: -45
+       light_angle_deg: -45,
+       # Lore panel
+       selected_lore_entry: nil,
+       lore_entry_form: nil
      )}
   end
 
@@ -359,8 +362,75 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
     end
   end
 
+  def handle_event(
+        "stamp_placed",
+        %{"id" => stamp_id, "name" => name, "asset_category" => category} = _params,
+        socket
+      ) do
+    # Create a LoreEntry seeded with stamp name and category-derived type
+    lore_type = category_to_lore_type(category)
+    project_id = socket.assigns.project.id
+
+    case Worlds.create_lore_entry(%{
+           title: name,
+           type: lore_type,
+           content: "",
+           project_id: project_id
+         }) do
+      {:ok, lore_entry} ->
+        # Tell canvas to update this MapObject's loreId
+        {:noreply,
+         socket
+         |> push_event("lore_entry_created", %{stamp_id: stamp_id, lore_id: lore_entry.id})}
+
+      {:error, _changeset} ->
+        # Non-fatal: stamp is placed, lore just won't be linked
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("stamp_placed", _params, socket) do
     {:noreply, socket}
+  end
+
+  # When a stamp is clicked (no loreId) → just deselect lore panel
+  def handle_event("object_selected", %{"lore_id" => nil}, socket) do
+    {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
+  end
+
+  def handle_event("object_selected", %{"lore_id" => ""}, socket) do
+    {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
+  end
+
+  # When a stamp with a loreId is clicked → open the lore panel
+  def handle_event("object_selected", %{"lore_id" => lore_id}, socket) when is_binary(lore_id) do
+    lore_entry = Worlds.get_lore_entry!(lore_id)
+    form = to_form(Worlds.change_lore_entry(lore_entry))
+    {:noreply, assign(socket, selected_lore_entry: lore_entry, lore_entry_form: form)}
+  end
+
+  def handle_event("object_selected", _params, socket) do
+    {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
+  end
+
+  def handle_event("update_lore_entry", %{"lore_entry" => params}, socket) do
+    lore_entry = socket.assigns.selected_lore_entry
+
+    case Worlds.update_lore_entry(lore_entry, params) do
+      {:ok, updated} ->
+        {:noreply,
+         assign(socket,
+           selected_lore_entry: updated,
+           lore_entry_form: to_form(Worlds.change_lore_entry(updated))
+         )}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, lore_entry_form: to_form(changeset))}
+    end
+  end
+
+  def handle_event("close_lore_panel", _params, socket) do
+    {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
   end
 
   defp encode_stamp_asset(asset) do
@@ -400,6 +470,13 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
       }
     end)
   end
+
+  # Map asset category to LoreEntry type
+  defp category_to_lore_type("settlements"), do: "place"
+  defp category_to_lore_type("landmarks"), do: "place"
+  defp category_to_lore_type("terrain"), do: "place"
+  defp category_to_lore_type("water"), do: "place"
+  defp category_to_lore_type(_), do: "place"
 
   defp type_icon(type) do
     case type do
@@ -656,6 +733,59 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
           data-locations={Jason.encode!(encode_locations(@locations))}
           class="w-full h-full"
         >
+        </div>
+      </div>
+
+      <%!-- Right Panel - Lore Entry (stamp click) --%>
+      <div
+        :if={@selected_lore_entry}
+        class="w-80 bg-base-100 border-l border-base-content/10 overflow-y-auto shadow-xl flex-shrink-0"
+      >
+        <div class="p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <.icon name="hero-book-open" class="w-4 h-4 text-primary" />
+              <span class="text-sm font-bold text-base-content/60 uppercase tracking-wider">Lore</span>
+            </div>
+            <button phx-click="close_lore_panel" class="btn btn-ghost btn-sm btn-square">
+              <.icon name="hero-x-mark" class="w-4 h-4" />
+            </button>
+          </div>
+
+          <.form
+            for={@lore_entry_form}
+            phx-change="update_lore_entry"
+            phx-submit="update_lore_entry"
+          >
+            <.input
+              field={@lore_entry_form[:title]}
+              label="Name"
+              class="font-serif text-lg"
+            />
+            <.input
+              field={@lore_entry_form[:type]}
+              label="Type"
+              type="select"
+              options={
+                Enum.map(ParchmentStudios.Worlds.LoreEntry.valid_types(), fn t ->
+                  {String.capitalize(t), t}
+                end)
+              }
+            />
+            <.input
+              field={@lore_entry_form[:content]}
+              label="Content"
+              type="textarea"
+              rows="10"
+              placeholder="Write the history, secrets, and lore of this place..."
+            />
+          </.form>
+
+          <div class="mt-3 pt-3 border-t border-base-content/10">
+            <p class="text-xs text-base-content/40 font-mono">
+              id: {@selected_lore_entry.id |> String.slice(0, 8)}…
+            </p>
+          </div>
         </div>
       </div>
 

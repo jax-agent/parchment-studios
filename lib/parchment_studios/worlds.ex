@@ -168,4 +168,9 @@ defmodule ParchmentStudios.Worlds do
   def delete_lore_entry(%LoreEntry{} = lore_entry) do
     Repo.delete(lore_entry)
   end
+
+  @doc "Return a changeset for a lore entry (for form binding)."
+  def change_lore_entry(%LoreEntry{} = lore_entry, attrs \\ %{}) do
+    LoreEntry.changeset(lore_entry, attrs)
+  end
 end
