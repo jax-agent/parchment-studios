@@ -27,7 +27,7 @@ Repo.insert!(
 
 pack = Repo.get_by!(AssetPack, name: "Classic Fantasy")
 
-stamp_layers = fn base_url ->
+stamp_layers = fn base_url, shadow_url, light_url ->
   [
     %{
       id: "base",
@@ -42,9 +42,19 @@ stamp_layers = fn base_url ->
       id: "shadow",
       type: "SHADOW",
       blend_mode: "multiply",
-      opacity: 0.6,
+      opacity: 0.7,
       visible: true,
-      frames: [],
+      frames: [shadow_url],
+      fps: 0,
+      keyed_to: "lightAngle"
+    },
+    %{
+      id: "light",
+      type: "LIGHT",
+      blend_mode: "screen",
+      opacity: 0.5,
+      visible: true,
+      frames: [light_url],
       fps: 0,
       keyed_to: "lightAngle"
     }
@@ -63,15 +73,17 @@ stamps = [
 base_path = "/assets/stamps/classic_fantasy"
 
 for stamp <- stamps do
-  url = "#{base_path}/#{stamp.file}.png"
+  base = "#{base_path}/#{stamp.file}.png"
+  shadow = "#{base_path}/#{stamp.file}_shadow.png"
+  light = "#{base_path}/#{stamp.file}_light.png"
 
   Repo.insert!(
     %StampAsset{
       name: stamp.name,
       pack_id: pack.id,
       category: stamp.category,
-      thumbnail_url: url,
-      layers: stamp_layers.(url)
+      thumbnail_url: base,
+      layers: stamp_layers.(base, shadow, light)
     },
     on_conflict: {:replace, [:thumbnail_url, :layers]},
     conflict_target: [:name, :pack_id]
