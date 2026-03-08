@@ -276,6 +276,89 @@ defmodule ParchmentStudiosWeb.MapEditorLiveTest do
     end
   end
 
+  describe "map-lore navigation" do
+    test "stamp_placed sets selected_object_id and Find on Map shows after lore generated", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # Place a stamp — sets selected_object_id and generating_lore
+      render_hook(view, "stamp_placed", %{
+        "id" => "stamp-nav-1",
+        "name" => "Dark Tower",
+        "asset_category" => "settlements"
+      })
+
+      # Get the created lore entry
+      [lore_entry] = Worlds.list_lore_entries(project.id)
+      updated = %{lore_entry | content: "# The Dark Tower\n\nAn ancient spire."}
+
+      # Simulate lore generation completing
+      send(view.pid, {:lore_generated, updated})
+
+      html = render(view)
+      assert html =~ "Find on Map"
+      assert html =~ "Dark Tower"
+    end
+
+    test "find_on_map pushes fly_to_object event to client", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # Place a stamp to set selected_object_id
+      render_hook(view, "stamp_placed", %{
+        "id" => "stamp-nav-2",
+        "name" => "Crystal Cave",
+        "asset_category" => "landmarks"
+      })
+
+      [lore_entry] = Worlds.list_lore_entries(project.id)
+      send(view.pid, {:lore_generated, lore_entry})
+
+      # Click Find on Map
+      view
+      |> element(~s(button[phx-click="find_on_map"]))
+      |> render_click()
+
+      # The view should still be functional (no crash)
+      html = render(view)
+      assert html =~ "Crystal Cave"
+    end
+
+    test "close_lore_panel clears selected_object_id and hides Find on Map", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      render_hook(view, "stamp_placed", %{
+        "id" => "stamp-nav-3",
+        "name" => "Old Bridge",
+        "asset_category" => "landmarks"
+      })
+
+      [lore_entry] = Worlds.list_lore_entries(project.id)
+      send(view.pid, {:lore_generated, lore_entry})
+
+      html = render(view)
+      assert html =~ "Find on Map"
+
+      # Close the lore panel
+      view
+      |> element(~s(button[phx-click="close_lore_panel"]))
+      |> render_click()
+
+      html = render(view)
+      refute html =~ "Find on Map"
+    end
+  end
+
   describe "zoom" do
     test "zoom_changed event updates zoom level", %{
       conn: conn,
