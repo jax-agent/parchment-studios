@@ -536,7 +536,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
         <%!-- Layer Panel --%>
         <div
           :if={@layer_panel_open}
-          class="absolute top-16 left-4 z-[1000] w-56 bg-base-100/95 backdrop-blur rounded-lg shadow-lg border border-base-content/10"
+          class="absolute top-16 right-4 z-[1000] w-60 bg-base-100/95 backdrop-blur rounded-lg shadow-lg border border-base-content/10"
         >
           <div class="flex items-center justify-between px-3 py-2 border-b border-base-content/10">
             <span class="text-xs font-bold font-serif tracking-wide text-base-content/60">
@@ -663,14 +663,14 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
         <button
           :if={!@layer_panel_open}
           phx-click="toggle_layer_panel"
-          class="absolute top-16 left-4 z-[1000] btn btn-sm bg-base-100/95 backdrop-blur shadow border-base-content/10"
+          class="absolute top-16 right-4 z-[1000] btn btn-sm bg-base-100/95 backdrop-blur shadow border-base-content/10"
           title="Show layers"
         >
           <.icon name="hero-squares-2x2" class="w-4 h-4" /> Layers
         </button>
 
         <%!-- Tool Mode Toolbar --%>
-        <div class="absolute top-4 right-4 z-[1000] flex gap-1 bg-base-100/95 backdrop-blur rounded-lg shadow-lg border border-base-content/10 p-1">
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex gap-1 bg-base-100/95 backdrop-blur rounded-lg shadow-lg border border-base-content/10 p-1">
           <button
             phx-click="set_tool"
             phx-value-tool="select"
