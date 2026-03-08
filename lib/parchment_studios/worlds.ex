@@ -1,7 +1,7 @@
 defmodule ParchmentStudios.Worlds do
   import Ecto.Query
   alias ParchmentStudios.Repo
-  alias ParchmentStudios.Worlds.{Project, WorldMap, Location}
+  alias ParchmentStudios.Worlds.{Project, WorldMap, Location, LoreEntry}
 
   # Projects
 
@@ -127,5 +127,45 @@ defmodule ParchmentStudios.Worlds do
       )
     )
     |> Repo.all()
+  end
+
+  # LoreEntries
+
+  @doc "List all lore entries for a project."
+  def list_lore_entries(project_id) do
+    LoreEntry
+    |> where([l], l.project_id == ^project_id)
+    |> order_by([l], l.title)
+    |> Repo.all()
+  end
+
+  @doc "List lore entries for a project filtered by type."
+  def list_lore_entries_by_type(project_id, type) do
+    LoreEntry
+    |> where([l], l.project_id == ^project_id and l.type == ^type)
+    |> order_by([l], l.title)
+    |> Repo.all()
+  end
+
+  @doc "Get a single lore entry by id. Raises if not found."
+  def get_lore_entry!(id), do: Repo.get!(LoreEntry, id)
+
+  @doc "Create a lore entry."
+  def create_lore_entry(attrs \\ %{}) do
+    %LoreEntry{}
+    |> LoreEntry.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc "Update a lore entry."
+  def update_lore_entry(%LoreEntry{} = lore_entry, attrs) do
+    lore_entry
+    |> LoreEntry.changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc "Delete a lore entry."
+  def delete_lore_entry(%LoreEntry{} = lore_entry) do
+    Repo.delete(lore_entry)
   end
 end

@@ -8,6 +8,7 @@ defmodule ParchmentStudios.Worlds.Project do
     field :user_id, :string
 
     has_many :world_maps, ParchmentStudios.Worlds.WorldMap
+    has_many :lore_entries, ParchmentStudios.Worlds.LoreEntry
 
     timestamps(type: :utc_datetime)
   end
