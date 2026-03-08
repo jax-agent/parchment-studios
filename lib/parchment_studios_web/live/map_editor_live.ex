@@ -359,10 +359,13 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
       thumbnail_url: asset.thumbnail_url,
       layers:
         Enum.map(asset.layers, fn layer ->
+          type_raw = layer["type"] || layer[:type] || "base"
+          blend_raw = layer["blend_mode"] || layer[:blend_mode] || "normal"
+
           %{
             id: layer["id"] || layer[:id],
-            type: layer["type"] || layer[:type],
-            blend_mode: layer["blend_mode"] || layer[:blend_mode],
+            type: String.downcase(to_string(type_raw)),
+            blendMode: String.downcase(to_string(blend_raw)),
             opacity: layer["opacity"] || layer[:opacity] || 1.0,
             visible: Map.get(layer, "visible", Map.get(layer, :visible, true)),
             frames: layer["frames"] || layer[:frames] || [],
@@ -577,6 +580,43 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
           >
             <.icon name="hero-square-2-stack" class="w-4 h-4" />
           </button>
+        </div>
+
+        <%!-- Asset Library Panel (bottom dock) --%>
+        <div
+          :if={@asset_library != %{}}
+          class="absolute bottom-0 left-0 right-0 z-[1000] bg-base-100/95 backdrop-blur border-t border-base-content/10 shadow-lg"
+        >
+          <div class="flex items-center gap-1 px-3 py-1.5 border-b border-base-content/10">
+            <span class="text-xs font-bold font-serif tracking-wide text-base-content/60 mr-2">
+              STAMPS
+            </span>
+            <button
+              :for={{category, _assets} <- @asset_library}
+              phx-click="set_asset_category"
+              phx-value-category={category}
+              class={"btn btn-xs #{if @active_asset_category == category, do: "btn-primary", else: "btn-ghost"}"}
+            >
+              {category |> String.capitalize()}
+            </button>
+          </div>
+          <div class="flex gap-2 p-3 overflow-x-auto">
+            <div
+              :for={asset <- Map.get(@asset_library, @active_asset_category, [])}
+              phx-click="select_stamp"
+              phx-value-id={asset.id}
+              class={"flex flex-col items-center gap-1 p-2 rounded-lg cursor-pointer hover:bg-base-200 transition-colors min-w-[72px] #{if @active_stamp_asset && @active_stamp_asset.id == asset.id, do: "ring-2 ring-primary bg-primary/10", else: ""}"}
+            >
+              <img
+                src={asset.thumbnail_url}
+                alt={asset.name}
+                class="w-14 h-14 object-contain"
+              />
+              <span class="text-[10px] text-base-content/70 text-center truncate w-16">
+                {asset.name}
+              </span>
+            </div>
+          </div>
         </div>
 
         <div
