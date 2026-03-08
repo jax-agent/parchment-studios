@@ -246,6 +246,77 @@ export class AddLayerCommand implements Command {
   }
 }
 
+// ---- Brush Stroke ----
+
+export interface BrushPoint {
+  x: number;
+  y: number;
+}
+
+export interface BrushStrokeParams {
+  /** Bounding-box origin — points are relative to this */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;   // hex, e.g. '#4a7c59'
+  opacity: number; // 0–1
+  size: number;    // brush diameter in world-px
+  hardness: number; // 0=fully soft (blurred), 1=hard edge
+  points: BrushPoint[]; // world-space coords, relative to (x, y)
+}
+
+export class BrushStrokeCommand implements Command {
+  id = cmdId();
+  type = 'brush_stroke';
+  private addedId: string | null = null;
+
+  constructor(
+    private layers: LayerManager,
+    private layerId: string,
+    private params: BrushStrokeParams,
+  ) {}
+
+  execute(): void {
+    const obj: Omit<import('./types').MapObject, 'id'> = {
+      type: 'brush_stroke',
+      x: this.params.x,
+      y: this.params.y,
+      width: this.params.width,
+      height: this.params.height,
+      rotation: 0,
+      scale: 1,
+      opacity: this.params.opacity,
+      stampLayers: [],
+      data: {
+        color: this.params.color,
+        size: this.params.size,
+        hardness: this.params.hardness,
+        points: this.params.points,
+      },
+    };
+    const added = this.layers.addObject(this.layerId, obj);
+    this.addedId = added.id;
+  }
+
+  undo(): void {
+    if (this.addedId) {
+      this.layers.removeObject(this.layerId, this.addedId);
+      this.addedId = null;
+    }
+  }
+
+  getAddedId(): string | null {
+    return this.addedId;
+  }
+
+  toJSON(): object {
+    return { type: this.type, layerId: this.layerId, params: this.params, addedId: this.addedId };
+  }
+}
+
+// ---- Stamp ----
+
 export interface StampParams {
   x: number;
   y: number;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CommandHistory, AddObjectCommand, RemoveObjectCommand, MoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, ReorderLayerCommand, AddLayerCommand, RemoveLayerCommand, AddStampCommand } from '../commands';
+import { CommandHistory, AddObjectCommand, RemoveObjectCommand, MoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, ReorderLayerCommand, AddLayerCommand, RemoveLayerCommand, AddStampCommand, BrushStrokeCommand } from '../commands';
 import { LayerManager } from '../layers';
 import type { Command, MapObject, StampLayer } from '../types';
 
@@ -413,6 +413,96 @@ describe('Concrete Commands', () => {
       cmd.undo();
       expect(layers.getLayers()).toHaveLength(initialCount);
       expect(layers.getLayer('effects')).toBeDefined();
+    });
+  });
+
+  describe('BrushStrokeCommand', () => {
+    const strokeParams = {
+      x: 10,
+      y: 20,
+      width: 100,
+      height: 80,
+      color: '#4a7c59',
+      opacity: 0.75,
+      size: 20,
+      hardness: 0.3,
+      points: [
+        { x: 5, y: 10 },
+        { x: 20, y: 30 },
+        { x: 50, y: 45 },
+      ],
+    };
+
+    it('execute adds a brush_stroke object to the terrain layer', () => {
+      const before = layers.getLayer('terrain')!.objects.length;
+      const cmd = new BrushStrokeCommand(layers, 'terrain', strokeParams);
+      cmd.execute();
+
+      const terrain = layers.getLayer('terrain')!;
+      expect(terrain.objects).toHaveLength(before + 1);
+
+      const stroke = terrain.objects[terrain.objects.length - 1];
+      expect(stroke.type).toBe('brush_stroke');
+      expect(stroke.data.color).toBe('#4a7c59');
+      expect(stroke.data.size).toBe(20);
+      expect((stroke.data.points as { x: number; y: number }[])).toHaveLength(3);
+      expect(cmd.getAddedId()).toBe(stroke.id);
+    });
+
+    it('undo removes the brush stroke', () => {
+      const before = layers.getLayer('terrain')!.objects.length;
+      const cmd = new BrushStrokeCommand(layers, 'terrain', strokeParams);
+      cmd.execute();
+      expect(layers.getLayer('terrain')!.objects).toHaveLength(before + 1);
+
+      cmd.undo();
+      expect(layers.getLayer('terrain')!.objects).toHaveLength(before);
+    });
+
+    it('is undoable via CommandHistory', () => {
+      const history = new CommandHistory();
+      const before = layers.getLayer('terrain')!.objects.length;
+
+      history.execute(new BrushStrokeCommand(layers, 'terrain', strokeParams));
+      expect(layers.getLayer('terrain')!.objects).toHaveLength(before + 1);
+
+      history.undo();
+      expect(layers.getLayer('terrain')!.objects).toHaveLength(before);
+
+      history.redo();
+      expect(layers.getLayer('terrain')!.objects).toHaveLength(before + 1);
+    });
+
+    it('sequential strokes are independently undoable', () => {
+      const history = new CommandHistory();
+      const before = layers.getLayer('terrain')!.objects.length;
+
+      history.execute(new BrushStrokeCommand(layers, 'terrain', strokeParams));
+      history.execute(new BrushStrokeCommand(layers, 'terrain', { ...strokeParams, color: '#8ab87a' }));
+      expect(layers.getLayer('terrain')!.objects).toHaveLength(before + 2);
+
+      history.undo();
+      expect(layers.getLayer('terrain')!.objects).toHaveLength(before + 1);
+
+      history.undo();
+      expect(layers.getLayer('terrain')!.objects).toHaveLength(before);
+    });
+
+    it('opacity is stored on the MapObject', () => {
+      const cmd = new BrushStrokeCommand(layers, 'terrain', { ...strokeParams, opacity: 0.5 });
+      cmd.execute();
+      const terrain = layers.getLayer('terrain')!;
+      const stroke = terrain.objects[terrain.objects.length - 1];
+      expect(stroke.opacity).toBe(0.5);
+    });
+
+    it('toJSON serializes all params', () => {
+      const cmd = new BrushStrokeCommand(layers, 'terrain', strokeParams);
+      cmd.execute();
+      const json = cmd.toJSON() as any;
+      expect(json.type).toBe('brush_stroke');
+      expect(json.layerId).toBe('terrain');
+      expect(json.params.color).toBe('#4a7c59');
     });
   });
 });

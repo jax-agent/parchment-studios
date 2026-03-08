@@ -1,6 +1,6 @@
 export type LayerType = 'terrain' | 'water' | 'features' | 'labels' | 'effects' | 'custom';
 
-export type MapObjectType = 'stamp' | 'path' | 'text' | 'region';
+export type MapObjectType = 'stamp' | 'path' | 'text' | 'region' | 'brush_stroke';
 
 /**
  * The compositing type of a stamp layer.

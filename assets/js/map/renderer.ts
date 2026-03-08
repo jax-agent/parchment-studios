@@ -1,4 +1,5 @@
 import type { Layer, MapObject, MapState, StampLayer, BlendMode } from './types';
+import type { BrushPoint } from './commands';
 
 export class Viewport {
   private panX = 0;
@@ -137,6 +138,14 @@ export function lightKeyedOffset(
   return { dx: 0, dy: 0 };
 }
 
+export interface PreviewStroke {
+  points: BrushPoint[];   // absolute world coordinates
+  color: string;
+  size: number;
+  opacity: number;
+  hardness: number;
+}
+
 export class MapRenderer {
   private ck: any | null = null;
   private surface: any | null = null;
@@ -197,11 +206,17 @@ export class MapRenderer {
     getLayersFn: () => Layer[],
     getSelectedIdFn?: () => string | null,
     getMapStateFn?: () => MapState,
+    getPreviewStrokeFn?: () => PreviewStroke | null,
   ): void {
     const frame = () => {
       if (this.dirty) {
         const mapState = getMapStateFn?.() ?? { lightAngle: 0 };
-        this.render(getLayersFn(), getSelectedIdFn?.() ?? undefined, mapState.lightAngle);
+        this.render(
+          getLayersFn(),
+          getSelectedIdFn?.() ?? undefined,
+          mapState.lightAngle,
+          getPreviewStrokeFn?.() ?? null,
+        );
         this.dirty = false;
       }
       this.rafId = requestAnimationFrame(frame);
@@ -362,13 +377,112 @@ export class MapRenderer {
   }
 
   /**
+   * Build a smooth SkPath through the given points using catmull-rom spline.
+   * Falls back to a simple polyline if fewer than 2 points.
+   */
+  private buildStrokePath(ck: any, points: BrushPoint[]): any {
+    const path = new ck.Path();
+    if (points.length === 0) return path;
+    if (points.length === 1) {
+      // Single dot — draw a small circle via moveTo + lineTo same point
+      path.moveTo(points[0].x, points[0].y);
+      path.lineTo(points[0].x + 0.01, points[0].y);
+      return path;
+    }
+
+    path.moveTo(points[0].x, points[0].y);
+
+    if (points.length === 2) {
+      path.lineTo(points[1].x, points[1].y);
+      return path;
+    }
+
+    // Catmull-Rom spline: for each segment i → i+1, compute cubic bezier control points
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[Math.max(i - 1, 0)];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[Math.min(i + 2, points.length - 1)];
+
+      // Catmull-Rom → Bezier conversion (alpha = 0.5)
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+      path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+    }
+    return path;
+  }
+
+  /**
+   * Draw a brush stroke path with optional blur (softness) effect.
+   * @param canvas     CanvasKit canvas (already in world space)
+   * @param path       SkPath to stroke
+   * @param color      Hex color string e.g. '#4a7c59'
+   * @param size       Stroke width in world px
+   * @param opacity    0–1
+   * @param hardness   0=fully soft (blurred), 1=hard edge
+   */
+  private drawBrushPath(
+    canvas: any,
+    ck: any,
+    path: any,
+    color: string,
+    size: number,
+    opacity: number,
+    hardness: number,
+  ): void {
+    const [r, g, b] = this.parseHexColor(color);
+    const paint = new ck.Paint();
+    try {
+      paint.setAntiAlias(true);
+      paint.setStyle(ck.PaintStyle.Stroke);
+      paint.setStrokeWidth(size);
+      paint.setStrokeCap(ck.StrokeCap.Round);
+      paint.setStrokeJoin(ck.StrokeJoin.Round);
+      paint.setColor(ck.Color(r, g, b, 255));
+      paint.setAlphaf(opacity);
+
+      // Soft brush: apply blur mask filter based on (1 - hardness)
+      const blurSigma = size * (1 - hardness) * 0.3;
+      if (blurSigma > 0.5) {
+        const mf = ck.MaskFilter.MakeBlur(ck.BlurStyle.Normal, blurSigma, true);
+        paint.setMaskFilter(mf);
+        mf.delete();
+      }
+
+      canvas.drawPath(path, paint);
+    } finally {
+      paint.delete();
+      path.delete();
+    }
+  }
+
+  /**
+   * Render a brush_stroke MapObject.
+   * Points in obj.data.points are local (relative to obj.x, obj.y) — canvas is already translated.
+   */
+  private renderBrushStroke(canvas: any, obj: MapObject, ck: any): void {
+    const points = (obj.data.points as BrushPoint[]) ?? [];
+    if (points.length === 0) return;
+
+    const color = (obj.data.color as string) ?? '#4a7c59';
+    const size = (obj.data.size as number) ?? 20;
+    const hardness = (obj.data.hardness as number) ?? 0.3;
+    const path = this.buildStrokePath(ck, points);
+    this.drawBrushPath(canvas, ck, path, color, size, obj.opacity, hardness);
+  }
+
+  /**
    * Main render call. Draws all visible map layers with their objects.
    *
    * @param layers         Current layer stack
    * @param selectedObjectId  ID of the currently selected object (for gold outline)
    * @param lightAngle     Global light direction in radians (0 = east, π/2 = south)
+   * @param previewStroke  In-progress brush stroke to render as overlay
    */
-  render(layers: Layer[], selectedObjectId?: string, lightAngle = 0): void {
+  render(layers: Layer[], selectedObjectId?: string, lightAngle = 0, previewStroke: PreviewStroke | null = null): void {
     if (!this.ck || !this.surface) return;
     const canvas = this.surface.getCanvas();
     const ck = this.ck;
@@ -444,6 +558,9 @@ export class MapRenderer {
           } finally {
             paint.delete();
           }
+        } else if (obj.type === 'brush_stroke') {
+          // Brush strokes: render path with softness
+          this.renderBrushStroke(canvas, obj, ck);
         } else {
           // Stamps, paths, regions: composite via stampLayers[]
           this.renderStampObject(canvas, obj, ck, objAlpha, lightAngle, isSelected);
@@ -451,6 +568,20 @@ export class MapRenderer {
 
         canvas.restore();
       }
+    }
+
+    // Render in-progress brush stroke preview (absolute world coords, drawn before restore)
+    if (previewStroke && previewStroke.points.length > 0) {
+      const prevPath = this.buildStrokePath(ck, previewStroke.points);
+      this.drawBrushPath(
+        canvas,
+        ck,
+        prevPath,
+        previewStroke.color,
+        previewStroke.size,
+        previewStroke.opacity,
+        previewStroke.hardness,
+      );
     }
 
     canvas.restore();

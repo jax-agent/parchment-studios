@@ -69,7 +69,11 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        selected_object_id: nil,
        # Editor chrome
        zoom_level: 100,
-       tools: @tools
+       tools: @tools,
+       # Brush options
+       brush_color: "#4a7c59",
+       brush_size: 20,
+       brush_opacity: 75
      )}
   end
 
@@ -358,6 +362,31 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
      socket
      |> assign(light_angle_deg: angle_deg)
      |> push_event("light_angle_changed", %{angle: angle_rad})}
+  end
+
+  def handle_event("set_brush_color", %{"color" => color}, socket) do
+    {:noreply,
+     socket
+     |> assign(brush_color: color)
+     |> push_event("brush_options_changed", %{color: color})}
+  end
+
+  def handle_event("set_brush_size", %{"size" => size_str}, socket) do
+    size = String.to_integer(size_str)
+
+    {:noreply,
+     socket
+     |> assign(brush_size: size)
+     |> push_event("brush_options_changed", %{size: size})}
+  end
+
+  def handle_event("set_brush_opacity", %{"opacity" => opacity_str}, socket) do
+    opacity_pct = String.to_integer(opacity_str)
+
+    {:noreply,
+     socket
+     |> assign(brush_opacity: opacity_pct)
+     |> push_event("brush_options_changed", %{opacity: opacity_pct / 100})}
   end
 
   def handle_event("set_asset_category", %{"category" => category}, socket) do
@@ -739,6 +768,71 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
                     {@light_angle_deg}°
                   </span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <%!-- Brush options panel (only when brush tool active) --%>
+          <div
+            :if={@active_tool == "brush"}
+            class="bg-base-100/95 border-t border-base-content/10 flex-shrink-0 px-4 py-2"
+          >
+            <div class="flex items-center gap-6 flex-wrap">
+              <span class="text-xs font-bold font-serif tracking-wide text-base-content/60">
+                BRUSH
+              </span>
+
+              <%!-- Color swatches --%>
+              <div class="flex items-center gap-1">
+                <span class="text-[10px] text-base-content/40 mr-1">Color</span>
+                <button
+                  :for={
+                    {color, label} <- [
+                      {"#4a7c59", "Forest"},
+                      {"#8ab87a", "Grassland"},
+                      {"#c9a96e", "Desert"},
+                      {"#7a7a8c", "Mountain"},
+                      {"#4a7fa5", "Water"}
+                    ]
+                  }
+                  phx-click="set_brush_color"
+                  phx-value-color={color}
+                  class={"w-6 h-6 rounded-full border-2 transition-all cursor-pointer #{if @brush_color == color, do: "border-primary scale-110", else: "border-transparent hover:border-base-content/30"}"}
+                  style={"background: #{color};"}
+                  title={label}
+                />
+              </div>
+
+              <%!-- Size slider --%>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] text-base-content/40 w-6">Size</span>
+                <input
+                  type="range"
+                  min="4"
+                  max="120"
+                  step="2"
+                  value={@brush_size}
+                  phx-change="set_brush_size"
+                  name="size"
+                  class="range range-xs range-primary w-28"
+                />
+                <span class="text-[10px] text-base-content/40 w-8">{@brush_size}px</span>
+              </div>
+
+              <%!-- Opacity slider --%>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] text-base-content/40 w-10">Opacity</span>
+                <input
+                  type="range"
+                  min="10"
+                  max="100"
+                  step="5"
+                  value={@brush_opacity}
+                  phx-change="set_brush_opacity"
+                  name="opacity"
+                  class="range range-xs range-primary w-28"
+                />
+                <span class="text-[10px] text-base-content/40 w-8">{@brush_opacity}%</span>
               </div>
             </div>
           </div>

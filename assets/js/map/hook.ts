@@ -1,6 +1,8 @@
 import { MapRenderer, Viewport } from './renderer';
+import type { PreviewStroke } from './renderer';
 import { LayerManager } from './layers';
-import { CommandHistory, MoveObjectCommand, AddStampCommand, RemoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand } from './commands';
+import { CommandHistory, MoveObjectCommand, AddStampCommand, RemoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, BrushStrokeCommand } from './commands';
+import type { BrushPoint } from './commands';
 import type { MapObject, MapState, ToolMode, StampLayer, StampLayerType, BlendMode } from './types';
 
 interface HookContext {
@@ -47,6 +49,13 @@ export const MapEditorHook = {
     // Space bar pan state
     this._spaceHeld = false;
     this._previousTool = null as ToolMode | null;
+    // Brush state
+    this._brushActive = false;
+    this._brushPoints = [] as BrushPoint[];
+    this._brushColor = '#4a7c59';  // Forest green default
+    this._brushSize = 20;
+    this._brushOpacity = 0.75;
+    this._brushHardness = 0.3;
 
     // Init CanvasKit (async)
     this._renderer.init(canvas).then(() => {
@@ -54,6 +63,15 @@ export const MapEditorHook = {
         () => this._layers.getLayers(),
         () => this._selectedObject?.id ?? null,
         () => this._mapState,
+        () => this._brushActive && this._brushPoints.length > 0
+          ? {
+              points: this._brushPoints,
+              color: this._brushColor,
+              size: this._brushSize,
+              opacity: this._brushOpacity,
+              hardness: this._brushHardness,
+            } as PreviewStroke
+          : null,
       );
       this._renderer.requestRedraw();
     });
@@ -63,7 +81,14 @@ export const MapEditorHook = {
 
     canvas.addEventListener('mousedown', (e: MouseEvent) => {
       if (e.button === 0) {
-        if (this._toolMode === 'pan') {
+        if (this._toolMode === 'brush') {
+          // Brush mode: start drawing a stroke
+          const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+          this._brushActive = true;
+          this._brushPoints = [{ x: world.x, y: world.y }];
+          canvas.style.cursor = 'crosshair';
+          this._renderer.requestRedraw();
+        } else if (this._toolMode === 'pan') {
           // Pan mode: left click pans
           this._isPanning = true;
           this._dragStartX = e.offsetX;
@@ -159,7 +184,17 @@ export const MapEditorHook = {
     });
 
     canvas.addEventListener('mousemove', (e: MouseEvent) => {
-      if (this._isPanning) {
+      if (this._brushActive && this._toolMode === 'brush') {
+        const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+        const last = this._brushPoints[this._brushPoints.length - 1];
+        // Throttle: only add point if moved > 2 world-px (avoids thousands of duplicate points)
+        const dx = world.x - last.x;
+        const dy = world.y - last.y;
+        if (dx * dx + dy * dy >= 4) {
+          this._brushPoints.push({ x: world.x, y: world.y });
+          this._renderer.requestRedraw();
+        }
+      } else if (this._isPanning) {
         const dx = e.offsetX - this._dragStartX;
         const dy = e.offsetY - this._dragStartY;
         viewport().pan(dx, dy);
@@ -181,6 +216,47 @@ export const MapEditorHook = {
     });
 
     canvas.addEventListener('mouseup', (e: MouseEvent) => {
+      if (this._brushActive && this._toolMode === 'brush') {
+        this._brushActive = false;
+        const points = this._brushPoints;
+        this._brushPoints = [];
+
+        if (points.length > 0) {
+          // Compute bounding box (points are in world space)
+          let minX = points[0].x, minY = points[0].y;
+          let maxX = points[0].x, maxY = points[0].y;
+          for (const p of points) {
+            if (p.x < minX) minX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y > maxY) maxY = p.y;
+          }
+          const pad = this._brushSize / 2;
+          const ox = minX - pad;
+          const oy = minY - pad;
+
+          // Convert points to local (relative to bounding-box origin)
+          const localPoints: BrushPoint[] = points.map((p) => ({ x: p.x - ox, y: p.y - oy }));
+
+          const cmd = new BrushStrokeCommand(this._layers, 'terrain', {
+            x: ox,
+            y: oy,
+            width: maxX - minX + pad * 2,
+            height: maxY - minY + pad * 2,
+            color: this._brushColor,
+            opacity: this._brushOpacity,
+            size: this._brushSize,
+            hardness: this._brushHardness,
+            points: localPoints,
+          });
+          this._history.execute(cmd);
+        }
+
+        canvas.style.cursor = '';
+        this._renderer.requestRedraw();
+        return;
+      }
+
       if (this._isDragging && this._selectedObject) {
         const obj = this._selectedObject;
         const layerId = this._findLayerForObject(obj.id);
@@ -382,6 +458,15 @@ export const MapEditorHook = {
       }
       this._selectedObject = null;
       this._renderer.requestRedraw();
+    });
+
+    this.handleEvent('brush_options_changed', (data: {
+      color?: string; size?: number; opacity?: number; hardness?: number;
+    }) => {
+      if (data.color !== undefined) this._brushColor = data.color;
+      if (data.size !== undefined) this._brushSize = data.size;
+      if (data.opacity !== undefined) this._brushOpacity = data.opacity;
+      if (data.hardness !== undefined) this._brushHardness = data.hardness;
     });
 
     this.handleEvent('light_angle_changed', (data: { angle: number }) => {
