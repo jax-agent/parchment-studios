@@ -7,7 +7,7 @@ primary_region = "lax"
   release_command = "/app/bin/migrate"
 
 [env]
-  PHX_HOST = "parchment-studios.fly.dev"
+  PHX_HOST = "parchments.xyz"
   PORT = "4000"
   DATABASE_PATH = "/data/parchment_studios.db"
   POOL_SIZE = "5"
