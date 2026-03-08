@@ -50,7 +50,9 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        # Asset library
        asset_library: %{},
        active_asset_category: "settlements",
-       active_stamp_asset: nil
+       active_stamp_asset: nil,
+       # Light angle: -π/4 = classic top-left fantasy lighting (degrees for slider: -45)
+       light_angle_deg: -45
      )}
   end
 
@@ -326,6 +328,16 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
      |> push_event("set_tool", %{tool: tool})}
   end
 
+  def handle_event("set_light_angle", %{"angle_deg" => angle_deg_str}, socket) do
+    angle_deg = String.to_integer(angle_deg_str)
+    angle_rad = angle_deg * :math.pi() / 180.0
+
+    {:noreply,
+     socket
+     |> assign(light_angle_deg: angle_deg)
+     |> push_event("light_angle_changed", %{angle: angle_rad})}
+  end
+
   def handle_event("set_asset_category", %{"category" => category}, socket) do
     {:noreply, assign(socket, active_asset_category: category)}
   end
@@ -548,6 +560,24 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
                 name="opacity"
                 class="range range-xs range-primary flex-1"
               />
+            </div>
+          </div>
+          <%!-- Light angle slider — controls shadow/light layer direction --%>
+          <div class="px-3 py-2 border-t border-base-content/10">
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] text-base-content/40 w-12 leading-tight">☀️ Light</span>
+              <input
+                type="range"
+                min="-180"
+                max="180"
+                step="5"
+                value={@light_angle_deg}
+                phx-change="set_light_angle"
+                name="angle_deg"
+                class="range range-xs range-warning flex-1"
+                title={"Light angle: #{@light_angle_deg}°"}
+              />
+              <span class="text-[10px] text-base-content/40 w-8 text-right">{@light_angle_deg}°</span>
             </div>
           </div>
         </div>
