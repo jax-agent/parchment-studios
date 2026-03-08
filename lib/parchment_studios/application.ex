@@ -14,9 +14,7 @@ defmodule ParchmentStudios.Application do
        repos: Application.fetch_env!(:parchment_studios, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:parchment_studios, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: ParchmentStudios.PubSub},
-      # Start a worker by calling: ParchmentStudios.Worker.start_link(arg)
-      # {ParchmentStudios.Worker, arg},
-      # Start to serve requests, typically the last entry
+      {Oban, Application.fetch_env!(:parchment_studios, Oban)},
       ParchmentStudiosWeb.Endpoint
     ]
 

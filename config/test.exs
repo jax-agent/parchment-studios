@@ -17,6 +17,8 @@ config :parchment_studios, ParchmentStudiosWeb.Endpoint,
   secret_key_base: "2ayLNZLcNrwNrPRe9P9VzcwDVb/h1rTezGPWnr57c1C8xWai7HxTo96g+fPfFJVE",
   server: false
 
+config :parchment_studios, Oban, testing: :inline
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

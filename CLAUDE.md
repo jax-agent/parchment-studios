@@ -1,139 +1,100 @@
-# Task: M2.4 — Shadow + Light Layers for 6 Starter Stamps
+# Task: M3.4 — AI Lore Seed Generation
 
 ## What to Build
 
-Generate shadow and light layer PNGs for all 6 classic fantasy stamps, update the seed data to include 3-layer stamps, and update the renderer to shift shadow/light offsets based on `lightAngle`.
+When a stamp is placed on the map, automatically generate seed lore using Claude claude-haiku-4-5 (via Anthropic API / Req HTTP). The lore appears in the lore panel and fills in as it streams (non-blocking).
 
 ## Context
 
 - Elixir/Phoenix + CanvasKit WASM + TypeScript project
-- 6 stamps have base art in: `priv/static/assets/stamps/classic_fantasy/`
-  - city.png, village.png, mountain_range.png, forest_cluster.png, ruins.png, stone_tower.png
-- Each stamp currently has 2 StampLayers (base + shadow placeholder)
-- `lightAngle` is in MapState (default -π/4), wired into `hook.ts` + `renderer.ts`
-- Seeds are in `priv/repo/seeds.exs`
-- Nano-banana-pro script: `~/.openclaw/workspace/skills/nano-banana-pro/scripts/generate_image.py`
-- `GEMINI_API_KEY` env var is already set in the environment
+- Repo: `/root/projects/parchment_studios/`
+- Oban is already set up with a `:ai` queue (concurrency 2)
+- `LoreEntry` schema exists: id, project_id, title, type, content, map_pins
+- `ParchmentStudios.Lore` context: create_lore_entry/1, update_lore_entry/2
+- LiveView: `MapEditorLive` — handles `place_stamp` event, creates LoreEntry
+- `req` is in deps already
+- Anthropic API key is in env: `System.get_env("ANTHROPIC_API_KEY")` — check if set, fall back gracefully
 
-## Part 1: Generate Shadow Layer PNGs
+## Architecture
 
-For each of the 6 stamps, run the image generation script to create a shadow PNG.
+### Worker: `ParchmentStudios.Workers.GenerateLore`
 
-The script signature (check it first):
-```bash
-python3 ~/.openclaw/workspace/skills/nano-banana-pro/scripts/generate_image.py \
-  --prompt "PROMPT" \
-  --output priv/static/assets/stamps/classic_fantasy/{name}_shadow.png \
-  --width 256 --height 256
+Oban worker in `:ai` queue.
+
+Args: `%{"lore_entry_id" => id, "stamp_name" => name, "stamp_type" => type}`
+
+Logic:
+1. Get LoreEntry from DB
+2. Call Anthropic Messages API (claude-haiku-4-5, non-streaming for simplicity)
+3. Prompt generates: a fantasy name, 2-sentence backstory, 2 story hooks
+4. Update LoreEntry with generated content
+5. Broadcast via `PubSub` so LiveView can push to client in real time
+
+### Prompt Template
+
+```
+You are a fantasy worldbuilding assistant. Generate seed lore for a {type} called "{name}" in a classic fantasy world.
+
+Respond with ONLY valid JSON (no markdown, no explanation):
+{
+  "name": "evocative fantasy name",
+  "backstory": "2-sentence rich history",
+  "hooks": ["story hook 1", "story hook 2"]
+}
 ```
 
-Shadow prompt template:
-`"Grayscale shadow mask for a hand-drawn ink fantasy cartography stamp icon, {description}. Black silhouette with soft edges, dark gray drop shadow gradient, white background, simple 2D top-down view. 256x256."`
+Format the content for the LoreEntry as:
+```
+# {name}
 
-Stamps and descriptions:
-- city → "medieval walled city with towers"
-- village → "small village with cottages"
-- mountain_range → "mountain peaks"
-- forest_cluster → "cluster of trees"
-- ruins → "ancient crumbled stone ruins"
-- stone_tower → "tall stone tower"
+{backstory}
 
-Output files: `priv/static/assets/stamps/classic_fantasy/{name}_shadow.png`
-
-## Part 2: Generate Light Layer PNGs
-
-Same process but for highlight/light layers:
-
-Light prompt template:
-`"Grayscale highlight mask for a hand-drawn ink fantasy cartography stamp icon, {description}. White highlights on raised surfaces from a top-left light source, soft gradient from bright to dark, white background. 256x256."`
-
-Output files: `priv/static/assets/stamps/classic_fantasy/{name}_light.png`
-
-## Part 3: Update Seeds to 3-Layer Stamps
-
-In `priv/repo/seeds.exs`, each stamp's `:layers` field should be a 3-element list:
-
-```elixir
-layers: [
-  %{
-    "id" => "base",
-    "type" => "image",
-    "blendMode" => "normal",
-    "opacity" => 1.0,
-    "visible" => true,
-    "frames" => [],
-    "fps" => 0,
-    "url" => "/assets/stamps/classic_fantasy/{name}.png"
-  },
-  %{
-    "id" => "shadow",
-    "type" => "image",
-    "blendMode" => "multiply",
-    "opacity" => 0.7,
-    "visible" => true,
-    "frames" => [],
-    "fps" => 0,
-    "keyed_to" => "shadow",
-    "url" => "/assets/stamps/classic_fantasy/{name}_shadow.png"
-  },
-  %{
-    "id" => "light",
-    "type" => "image",
-    "blendMode" => "screen",
-    "opacity" => 0.5,
-    "visible" => true,
-    "frames" => [],
-    "fps" => 0,
-    "keyed_to" => "light",
-    "url" => "/assets/stamps/classic_fantasy/{name}_light.png"
-  }
-]
+## Story Hooks
+- {hook1}
+- {hook2}
 ```
 
-After updating seeds.exs, run:
-```bash
-mix ecto.reset
-```
+### LiveView Integration
 
-Verify 6 assets exist with 3 layers each.
+In `MapEditorLive`:
+- After creating LoreEntry + enqueuing Oban job, set `lore_generating: true` in assigns
+- Subscribe to `"lore:#{lore_entry_id}"` PubSub topic
+- Handle `PubSub` message `{:lore_generated, entry}` → update socket, push to client
+- Lore panel shows "✨ Generating lore..." spinner when `lore_generating: true`
 
-## Part 4: Update Renderer for lightAngle Offset
+### Fallback
 
-In `assets/js/map/renderer.ts`, when drawing stamp layers:
+If `ANTHROPIC_API_KEY` is not set or API fails:
+- Log warning
+- Leave content as empty string (user can write their own)
+- Worker returns `{:ok, :skipped}` — no Oban retry for missing key
 
-- If `layer.keyed_to === 'shadow'`: shift draw rect by:
-  - `dx = -Math.sin(lightAngle) * 8` (pixels, world space)
-  - `dy = Math.cos(lightAngle) * 8`
-- If `layer.keyed_to === 'light'`: shift opposite:
-  - `dx = Math.sin(lightAngle) * 4`
-  - `dy = -Math.cos(lightAngle) * 4`
-- If no `keyed_to`: draw at original position (no shift)
+## Files to Create/Modify
 
-`lightAngle` is available via `this.getMapStateFn().lightAngle` in the renderer.
+1. **`lib/parchment_studios/workers/generate_lore.ex`** — new Oban worker
+2. **`lib/parchment_studios_web/live/map_editor_live.ex`** — enqueue job after stamp placement, handle PubSub
+3. **`test/parchment_studios/workers/generate_lore_test.exs`** — test with Oban.Testing + mock API response
+4. **`test/parchment_studios_web/live/map_editor_live_test.exs`** — test lore_generating state
 
-The offset applies to the destination rect passed to `drawImageRect` or the translated position of the placeholder rect.
+## Done When
 
-Also update the TypeScript `StampLayer` type to include optional `keyed_to?: string` and `url?: string` fields (they may already exist — check types.ts).
-
-## Verification
-
-```bash
-mix precommit          # all Elixir tests must pass
-cd assets && npm test  # all TS tests must pass
-```
+- [ ] `mix test` passes (all existing + new tests)
+- [ ] Place a stamp → lore panel shows "✨ Generating lore..." 
+- [ ] Worker runs via Oban and updates LoreEntry with AI content
+- [ ] PubSub broadcasts to LiveView → panel fills in with generated lore
+- [ ] If API key missing → graceful no-op, no crash
+- [ ] `mix precommit` passes (format + credo + test)
 
 ## Commit
 
-```bash
-git checkout -b feat/m2-4-shadow-light
-git add priv/static/assets/stamps/classic_fantasy/
-git add priv/repo/seeds.exs assets/js/map/renderer.ts assets/js/map/types.ts
-git commit -m "feat(M2.4): shadow + light layers for 6 starter stamps with lightAngle compositing"
+```
+feat(M3.4): AI lore seed generation via Oban + Anthropic API
 ```
 
-## Completion
+## Important
 
-When completely finished and committed, run:
-```bash
-openclaw system event --text "Done: M2.4 shadow+light layers for 6 stamps committed" --mode now
-```
+- Do NOT use `Task.async` — everything goes through Oban (project rule)
+- Keep the Anthropic call simple: Req.post with Messages API, parse JSON response
+- No streaming for now — complete response then update DB + broadcast
+- Run `MIX_ENV=test mix test` to verify all tests pass before committing
+- CLAUDE_CODE_ALLOW_ROOT=1 is already set
