@@ -75,7 +75,9 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        brush_size: 20,
        brush_opacity: 75,
        # Export
-       exporting: false
+       exporting: false,
+       show_export_modal: false,
+       export_resolution: "2k"
      )}
   end
 
@@ -391,11 +393,30 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
      |> push_event("brush_options_changed", %{opacity: opacity_pct / 100})}
   end
 
+  def handle_event("show_export_modal", _params, socket) do
+    {:noreply, assign(socket, show_export_modal: true)}
+  end
+
+  def handle_event("hide_export_modal", _params, socket) do
+    {:noreply, assign(socket, show_export_modal: false)}
+  end
+
+  def handle_event("set_export_resolution", %{"resolution" => res}, socket) do
+    {:noreply, assign(socket, export_resolution: res)}
+  end
+
   def handle_event("export_map", _params, socket) do
+    {w, h} =
+      case socket.assigns.export_resolution do
+        "4k" -> {4096, 4096}
+        "8k" -> {8192, 8192}
+        _ -> {2048, 2048}
+      end
+
     {:noreply,
      socket
-     |> assign(exporting: true)
-     |> push_event("export_map", %{})}
+     |> assign(exporting: true, show_export_modal: false)
+     |> push_event("export_map", %{width: w, height: h})}
   end
 
   def handle_event("export_started", _params, socket) do
@@ -654,7 +675,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
         <%!-- Right: export + layers toggle + settings --%>
         <div class="flex items-center gap-2 flex-1 justify-end">
           <button
-            phx-click="export_map"
+            phx-click="show_export_modal"
             class={"btn btn-ghost btn-sm gap-1 #{if @exporting, do: "loading"}"}
             title="Export map as PNG"
             disabled={@exporting}
@@ -673,6 +694,68 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
           </button>
           <button class="btn btn-ghost btn-sm btn-square" title="Settings">
             <.icon name="hero-cog-6-tooth" class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <%!-- EXPORT MODAL --%>
+      <div
+        :if={@show_export_modal}
+        class="fixed inset-0 z-[200] flex items-center justify-center bg-black/40"
+        phx-click="hide_export_modal"
+      >
+        <div
+          class="bg-base-100 rounded-lg shadow-xl w-80 p-5"
+          phx-click-away="hide_export_modal"
+          onclick="event.stopPropagation()"
+        >
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-serif font-bold">Export Map</h3>
+            <button phx-click="hide_export_modal" class="btn btn-ghost btn-sm btn-square">
+              <.icon name="hero-x-mark" class="w-4 h-4" />
+            </button>
+          </div>
+
+          <form phx-change="set_export_resolution">
+            <p class="text-sm font-medium mb-2">Resolution:</p>
+            <label class="flex items-center gap-2 py-1 cursor-pointer">
+              <input
+                type="radio"
+                name="resolution"
+                value="2k"
+                checked={@export_resolution == "2k"}
+                class="radio radio-sm radio-primary"
+              />
+              <span class="text-sm">2K (2048 × 2048)</span>
+            </label>
+            <label class="flex items-center gap-2 py-1 cursor-pointer">
+              <input
+                type="radio"
+                name="resolution"
+                value="4k"
+                checked={@export_resolution == "4k"}
+                class="radio radio-sm radio-primary"
+              />
+              <span class="text-sm">4K (4096 × 4096)</span>
+            </label>
+            <label class="flex items-center gap-2 py-1 cursor-pointer">
+              <input
+                type="radio"
+                name="resolution"
+                value="8k"
+                checked={@export_resolution == "8k"}
+                class="radio radio-sm radio-primary"
+              />
+              <span class="text-sm">8K (8192 × 8192)</span>
+            </label>
+          </form>
+
+          <p class="text-xs text-base-content/50 mt-3 mb-4">
+            Note: 8K may take ~10 seconds
+          </p>
+
+          <button phx-click="export_map" class="btn btn-primary btn-sm w-full gap-1">
+            <.icon name="hero-arrow-down-tray" class="w-4 h-4" /> Export PNG
           </button>
         </div>
       </div>

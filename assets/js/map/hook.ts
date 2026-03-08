@@ -539,13 +539,15 @@ export const MapEditorHook = {
       requestAnimationFrame(animateFly);
     });
 
-    // Export: render map off-screen at 2K and trigger PNG download
-    this.handleEvent('export_map', async (_data: any) => {
+    // Export: render map off-screen and trigger PNG download
+    this.handleEvent('export_map', async (data: { width?: number; height?: number }) => {
+      const width = data.width ?? 2048;
+      const height = data.height ?? 2048;
       const mapState = this._mapState ?? { lightAngle: 0 };
       const layers = this._layers.getLayers();
       this.pushEvent('export_started', {});
       try {
-        const bytes = await this._renderer.exportToPNG(2048, 2048, layers, mapState.lightAngle);
+        const bytes = await this._renderer.exportToPNG(width, height, layers, mapState.lightAngle);
         if (!bytes) {
           this.pushEvent('export_failed', { reason: 'renderer not ready' });
           return;
@@ -554,7 +556,9 @@ export const MapEditorHook = {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'parchment-map.png';
+        // Filename includes resolution label
+        const resLabel = width >= 8192 ? '8k' : width >= 4096 ? '4k' : '2k';
+        a.download = `parchment-map-${resLabel}.png`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

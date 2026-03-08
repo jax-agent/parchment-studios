@@ -359,6 +359,68 @@ defmodule ParchmentStudiosWeb.MapEditorLiveTest do
     end
   end
 
+  describe "export modal" do
+    test "show_export_modal opens the modal", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # Modal should not be visible initially
+      refute html =~ "Export Map"
+      refute html =~ "2K (2048"
+
+      # Click the export button to open modal
+      view |> element(~s(button[phx-click="show_export_modal"])) |> render_click()
+
+      html = render(view)
+      assert html =~ "Export Map"
+      assert html =~ "2K (2048"
+      assert html =~ "4K (4096"
+      assert html =~ "8K (8192"
+      assert html =~ "8K may take ~10 seconds"
+    end
+
+    test "hide_export_modal closes the modal", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # Open modal
+      view |> element(~s(button[phx-click="show_export_modal"])) |> render_click()
+      html = render(view)
+      assert html =~ "Export Map"
+
+      # Close modal
+      view |> element(~s(button[phx-click="hide_export_modal"])) |> render_click()
+      html = render(view)
+      refute html =~ "8K (8192"
+    end
+
+    test "set_export_resolution changes the selected resolution", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # Open modal
+      view |> element(~s(button[phx-click="show_export_modal"])) |> render_click()
+
+      # Change resolution to 4k via radio group
+      view
+      |> element("form[phx-change=\"set_export_resolution\"]")
+      |> render_change(%{"resolution" => "4k"})
+
+      # The 4k radio should now be checked (verified by re-render)
+      html = render(view)
+      assert html =~ "4K (4096"
+    end
+  end
+
   describe "zoom" do
     test "zoom_changed event updates zoom level", %{
       conn: conn,

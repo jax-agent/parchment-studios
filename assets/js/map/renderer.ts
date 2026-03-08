@@ -605,6 +605,12 @@ export class MapRenderer {
     lightAngle = 0,
   ): Promise<Uint8Array | null> {
     if (!this.ck || !this.surface) return null;
+
+    // For large exports (> 4096), use tiled rendering to avoid OOM
+    if (width > 4096 || height > 4096) {
+      return this.exportToPNGTiled(width, height, layers, lightAngle);
+    }
+
     const ck = this.ck;
 
     // Create an off-screen CPU surface at export resolution
@@ -689,6 +695,139 @@ export class MapRenderer {
     } finally {
       exportSurface.delete();
     }
+  }
+
+  /**
+   * Tiled export for large resolutions (> 4096px).
+   * Renders 4 quadrants at half-resolution each using CanvasKit CPU surfaces,
+   * then stitches them onto a Canvas2D element and returns the combined PNG.
+   */
+  private async exportToPNGTiled(
+    width: number,
+    height: number,
+    layers: Layer[],
+    lightAngle: number,
+  ): Promise<Uint8Array | null> {
+    const ck = this.ck!;
+    const tileW = Math.ceil(width / 2);
+    const tileH = Math.ceil(height / 2);
+
+    // Create a full-size Canvas2D to stitch tiles onto
+    const stitchCanvas = document.createElement('canvas');
+    stitchCanvas.width = width;
+    stitchCanvas.height = height;
+    const ctx = stitchCanvas.getContext('2d');
+    if (!ctx) return null;
+
+    const liveW = this.surface!.width();
+    const liveH = this.surface!.height();
+    const { x: px, y: py } = this.viewport.getPan();
+    const zoom = this.viewport.getZoom();
+
+    // Quadrants: [offsetX, offsetY]
+    const quadrants: [number, number][] = [
+      [0, 0],
+      [tileW, 0],
+      [0, tileH],
+      [tileW, tileH],
+    ];
+
+    for (const [ox, oy] of quadrants) {
+      const tileSurface = ck.MakeSurface(tileW, tileH);
+      if (!tileSurface) return null;
+
+      try {
+        const tileCanvas = tileSurface.getCanvas();
+        tileCanvas.clear(ck.Color4f(0.95, 0.93, 0.9, 1.0));
+
+        const scaleX = width / (liveW || 1);
+        const scaleY = height / (liveH || 1);
+        const exportScale = Math.min(scaleX, scaleY);
+
+        tileCanvas.save();
+        // Shift by -ox, -oy so we render the correct quadrant
+        tileCanvas.translate(-ox, -oy);
+        tileCanvas.translate(px * exportScale, py * exportScale);
+        tileCanvas.scale(zoom * exportScale, zoom * exportScale);
+
+        // Tile parchment background texture
+        if (this.bgImage && this.bgImageWidth > 0 && this.bgImageHeight > 0) {
+          const tw = this.bgImageWidth;
+          const th = this.bgImageHeight;
+          const worldLeft = -px / zoom;
+          const worldTop = -py / zoom;
+          const worldRight = (width / exportScale - px) / zoom;
+          const worldBottom = (height / exportScale - py) / zoom;
+          const startX = Math.floor(worldLeft / tw) * tw;
+          const startY = Math.floor(worldTop / th) * th;
+          const bgPaint = new ck.Paint();
+          try {
+            for (let ty = startY; ty < worldBottom; ty += th) {
+              for (let tx = startX; tx < worldRight; tx += tw) {
+                tileCanvas.drawImage(this.bgImage, tx, ty, bgPaint);
+              }
+            }
+          } finally {
+            bgPaint.delete();
+          }
+        }
+
+        // Render layers
+        const sorted = [...layers].sort((a, b) => a.zIndex - b.zIndex);
+        for (const layer of sorted) {
+          if (!layer.visible) continue;
+          const [, , , la] = LAYER_COLORS[layer.type] ?? LAYER_COLORS.custom;
+          const layerAlpha = (la / 255) * layer.opacity;
+
+          for (const obj of layer.objects) {
+            tileCanvas.save();
+            tileCanvas.translate(obj.x, obj.y);
+            if (obj.rotation !== 0) tileCanvas.rotate(obj.rotation, obj.width / 2, obj.height / 2);
+            if (obj.scale !== 1) tileCanvas.scale(obj.scale, obj.scale);
+
+            const objAlpha = layerAlpha * obj.opacity;
+
+            if (obj.type === 'brush_stroke') {
+              this.renderBrushStroke(tileCanvas, obj, ck);
+            } else if (obj.type !== 'text') {
+              this.renderStampObject(tileCanvas, obj, ck, objAlpha, lightAngle, false);
+            }
+            tileCanvas.restore();
+          }
+        }
+
+        tileCanvas.restore();
+        tileSurface.flush();
+
+        // Encode tile to PNG, draw onto the stitch canvas
+        const snapshot = tileSurface.makeImageSnapshot();
+        if (!snapshot) return null;
+        const tileBytes = snapshot.encodeToBytes();
+        snapshot.delete();
+
+        if (tileBytes) {
+          const blob = new Blob([tileBytes], { type: 'image/png' });
+          const bmp = await createImageBitmap(blob);
+          ctx.drawImage(bmp, ox, oy);
+          bmp.close();
+        }
+      } finally {
+        tileSurface.delete();
+      }
+    }
+
+    // Convert stitched canvas to PNG bytes
+    return new Promise<Uint8Array | null>((resolve) => {
+      stitchCanvas.toBlob((blob) => {
+        if (!blob) {
+          resolve(null);
+          return;
+        }
+        blob.arrayBuffer().then((buf) => {
+          resolve(new Uint8Array(buf));
+        });
+      }, 'image/png');
+    });
   }
 
   destroy(): void {
