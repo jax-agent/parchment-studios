@@ -73,7 +73,9 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        # Brush options
        brush_color: "#4a7c59",
        brush_size: 20,
-       brush_opacity: 75
+       brush_opacity: 75,
+       # Export
+       exporting: false
      )}
   end
 
@@ -389,6 +391,27 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
      |> push_event("brush_options_changed", %{opacity: opacity_pct / 100})}
   end
 
+  def handle_event("export_map", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(exporting: true)
+     |> push_event("export_map", %{})}
+  end
+
+  def handle_event("export_started", _params, socket) do
+    {:noreply, assign(socket, exporting: true)}
+  end
+
+  def handle_event("export_complete", _params, socket) do
+    {:noreply, assign(socket, exporting: false)}
+  end
+
+  def handle_event("export_failed", %{"reason" => reason}, socket) do
+    require Logger
+    Logger.error("Map export failed: #{reason}")
+    {:noreply, assign(socket, exporting: false)}
+  end
+
   def handle_event("set_asset_category", %{"category" => category}, socket) do
     {:noreply, assign(socket, active_asset_category: category)}
   end
@@ -628,8 +651,20 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
         <div class="flex-1 text-center">
           <span class="text-xs text-base-content/50 font-mono">{@zoom_level}%</span>
         </div>
-        <%!-- Right: layers toggle + settings --%>
+        <%!-- Right: export + layers toggle + settings --%>
         <div class="flex items-center gap-2 flex-1 justify-end">
+          <button
+            phx-click="export_map"
+            class={"btn btn-ghost btn-sm gap-1 #{if @exporting, do: "loading"}"}
+            title="Export map as PNG"
+            disabled={@exporting}
+          >
+            <%= if @exporting do %>
+              <span class="loading loading-spinner loading-xs"></span> Exporting…
+            <% else %>
+              <.icon name="hero-arrow-down-tray" class="w-4 h-4" /> Export
+            <% end %>
+          </button>
           <button
             phx-click="toggle_layer_panel"
             class={"btn btn-ghost btn-sm gap-1 #{if @layer_panel_open, do: "text-amber-500"}"}

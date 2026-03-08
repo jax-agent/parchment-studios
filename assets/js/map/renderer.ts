@@ -588,6 +588,109 @@ export class MapRenderer {
     this.surface.flush();
   }
 
+  /**
+   * Export the current map view to a PNG at the given resolution.
+   * Renders all visible layers off-screen using the current viewport camera.
+   * Returns PNG bytes as Uint8Array, or null if CanvasKit is not ready.
+   *
+   * @param width   Output width in pixels (e.g. 2048)
+   * @param height  Output height in pixels (e.g. 2048)
+   * @param layers  Current layer stack
+   * @param lightAngle  Global light direction in radians
+   */
+  async exportToPNG(
+    width: number,
+    height: number,
+    layers: Layer[],
+    lightAngle = 0,
+  ): Promise<Uint8Array | null> {
+    if (!this.ck || !this.surface) return null;
+    const ck = this.ck;
+
+    // Create an off-screen CPU surface at export resolution
+    const exportSurface = ck.MakeSurface(width, height);
+    if (!exportSurface) return null;
+
+    try {
+      const canvas = exportSurface.getCanvas();
+
+      // Clear with parchment background
+      canvas.clear(ck.Color4f(0.95, 0.93, 0.9, 1.0));
+
+      // Scale viewport to fit the export canvas
+      // We render the same world-space content the user sees, scaled to fill the export
+      const liveW = this.surface.width();
+      const liveH = this.surface.height();
+      const scaleX = width / (liveW || 1);
+      const scaleY = height / (liveH || 1);
+      const exportScale = Math.min(scaleX, scaleY);
+
+      canvas.save();
+      const { x: px, y: py } = this.viewport.getPan();
+      const zoom = this.viewport.getZoom();
+      canvas.translate(px * exportScale, py * exportScale);
+      canvas.scale(zoom * exportScale, zoom * exportScale);
+
+      // Tile parchment background texture
+      if (this.bgImage && this.bgImageWidth > 0 && this.bgImageHeight > 0) {
+        const tw = this.bgImageWidth;
+        const th = this.bgImageHeight;
+        const worldLeft   = -px / zoom;
+        const worldTop    = -py / zoom;
+        const worldRight  = (width / exportScale - px) / zoom;
+        const worldBottom = (height / exportScale - py) / zoom;
+        const startX = Math.floor(worldLeft  / tw) * tw;
+        const startY = Math.floor(worldTop   / th) * th;
+        const bgPaint = new ck.Paint();
+        try {
+          for (let ty = startY; ty < worldBottom; ty += th) {
+            for (let tx = startX; tx < worldRight; tx += tw) {
+              canvas.drawImage(this.bgImage, tx, ty, bgPaint);
+            }
+          }
+        } finally {
+          bgPaint.delete();
+        }
+      }
+
+      // Render layers (no selection highlight in export)
+      const sorted = [...layers].sort((a, b) => a.zIndex - b.zIndex);
+      for (const layer of sorted) {
+        if (!layer.visible) continue;
+        const [, , , la] = LAYER_COLORS[layer.type] ?? LAYER_COLORS.custom;
+        const layerAlpha = (la / 255) * layer.opacity;
+
+        for (const obj of layer.objects) {
+          canvas.save();
+          canvas.translate(obj.x, obj.y);
+          if (obj.rotation !== 0) canvas.rotate(obj.rotation, obj.width / 2, obj.height / 2);
+          if (obj.scale !== 1) canvas.scale(obj.scale, obj.scale);
+
+          const objAlpha = layerAlpha * obj.opacity;
+
+          if (obj.type === 'brush_stroke') {
+            this.renderBrushStroke(canvas, obj, ck);
+          } else if (obj.type !== 'text') {
+            this.renderStampObject(canvas, obj, ck, objAlpha, lightAngle, false);
+          }
+          canvas.restore();
+        }
+      }
+
+      canvas.restore();
+      exportSurface.flush();
+
+      // Encode to PNG
+      const snapshot = exportSurface.makeImageSnapshot();
+      if (!snapshot) return null;
+      const pngBytes = snapshot.encodeToBytes();
+      snapshot.delete();
+      return pngBytes;
+    } finally {
+      exportSurface.delete();
+    }
+  }
+
   destroy(): void {
     this.stopRenderLoop();
     for (const img of this.imageCache.values()) {

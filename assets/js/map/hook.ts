@@ -539,6 +539,32 @@ export const MapEditorHook = {
       requestAnimationFrame(animateFly);
     });
 
+    // Export: render map off-screen at 2K and trigger PNG download
+    this.handleEvent('export_map', async (_data: any) => {
+      const mapState = this._mapState ?? { lightAngle: 0 };
+      const layers = this._layers.getLayers();
+      this.pushEvent('export_started', {});
+      try {
+        const bytes = await this._renderer.exportToPNG(2048, 2048, layers, mapState.lightAngle);
+        if (!bytes) {
+          this.pushEvent('export_failed', { reason: 'renderer not ready' });
+          return;
+        }
+        const blob = new Blob([bytes], { type: 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'parchment-map.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        this.pushEvent('export_complete', {});
+      } catch (err) {
+        this.pushEvent('export_failed', { reason: String(err) });
+      }
+    });
+
     // Radial tool wheel interaction (pure JS, no LiveView round-trip for open/close)
     const wheelEl = container.parentElement?.querySelector('#tool-wheel');
     if (wheelEl) {
