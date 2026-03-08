@@ -429,6 +429,26 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
     end
   end
 
+  def handle_event("save_lore_content", %{"content" => content}, socket) do
+    lore_entry = socket.assigns.selected_lore_entry
+
+    if lore_entry do
+      case Worlds.update_lore_entry(lore_entry, %{content: content}) do
+        {:ok, updated} ->
+          {:noreply,
+           assign(socket,
+             selected_lore_entry: updated,
+             lore_entry_form: to_form(Worlds.change_lore_entry(updated))
+           )}
+
+        {:error, _changeset} ->
+          {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("close_lore_panel", _params, socket) do
     {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
   end
@@ -745,7 +765,9 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
               <.icon name="hero-book-open" class="w-4 h-4 text-primary" />
-              <span class="text-sm font-bold text-base-content/60 uppercase tracking-wider">Lore</span>
+              <span class="text-sm font-bold text-base-content/60 uppercase tracking-wider">
+                Lore
+              </span>
             </div>
             <button phx-click="close_lore_panel" class="btn btn-ghost btn-sm btn-square">
               <.icon name="hero-x-mark" class="w-4 h-4" />
@@ -772,14 +794,43 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
                 end)
               }
             />
-            <.input
-              field={@lore_entry_form[:content]}
-              label="Content"
-              type="textarea"
-              rows="10"
-              placeholder="Write the history, secrets, and lore of this place..."
-            />
           </.form>
+
+          <div
+            id={"lore-editor-#{@selected_lore_entry.id}"}
+            phx-hook="LoreEditorHook"
+            phx-update="ignore"
+          >
+            <label class="label">
+              <span class="label-text text-sm font-medium">Content</span>
+            </label>
+            <div class="flex gap-1 mb-1">
+              <button
+                type="button"
+                data-action="bold"
+                class="btn btn-ghost btn-xs font-bold"
+                title="Bold (Ctrl+B)"
+              >
+                B
+              </button>
+              <button
+                type="button"
+                data-action="italic"
+                class="btn btn-ghost btn-xs italic"
+                title="Italic (Ctrl+I)"
+              >
+                I
+              </button>
+            </div>
+            <div
+              contenteditable="true"
+              data-content={@selected_lore_entry.content || ""}
+              class="w-full min-h-[10rem] p-3 bg-base-200 rounded-lg border border-base-content/20 focus:outline-none focus:border-primary text-sm leading-relaxed"
+              style="white-space: pre-wrap; word-wrap: break-word;"
+            >
+              {raw(@selected_lore_entry.content || "")}
+            </div>
+          </div>
 
           <div class="mt-3 pt-3 border-t border-base-content/10">
             <p class="text-xs text-base-content/40 font-mono">
