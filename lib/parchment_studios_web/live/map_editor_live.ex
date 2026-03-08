@@ -7,6 +7,16 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
 
   @location_types ParchmentStudios.Worlds.Location.location_types()
 
+  @tools [
+    %{id: "select", icon: "hero-cursor-arrow-rays", label: "Select", key: "V"},
+    %{id: "pan", icon: "hero-hand-raised", label: "Pan", key: "H"},
+    %{id: "stamp", icon: "hero-square-2-stack", label: "Stamp", key: "S"},
+    %{id: "pattern", icon: "hero-squares-plus", label: "Pattern", key: "P"},
+    %{id: "path", icon: "hero-pencil", label: "Path", key: "L"},
+    %{id: "brush", icon: "hero-paint-brush", label: "Brush", key: "B"},
+    %{id: "text", icon: "hero-language", label: "Text", key: "T"}
+  ]
+
   @default_layers [
     %{
       id: "terrain",
@@ -55,7 +65,10 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        light_angle_deg: -45,
        # Lore panel
        selected_lore_entry: nil,
-       lore_entry_form: nil
+       lore_entry_form: nil,
+       # Editor chrome
+       zoom_level: 100,
+       tools: @tools
      )}
   end
 
@@ -331,6 +344,11 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
      |> push_event("set_tool", %{tool: tool})}
   end
 
+  def handle_event("zoom_changed", %{"zoom" => zoom}, socket) do
+    zoom_pct = round(zoom * 100)
+    {:noreply, assign(socket, zoom_level: zoom_pct)}
+  end
+
   def handle_event("set_light_angle", %{"angle_deg" => angle_deg_str}, socket) do
     angle_deg = String.to_integer(angle_deg_str)
     angle_rad = angle_deg * :math.pi() / 180.0
@@ -429,26 +447,6 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
     end
   end
 
-  def handle_event("save_lore_content", %{"content" => content}, socket) do
-    lore_entry = socket.assigns.selected_lore_entry
-
-    if lore_entry do
-      case Worlds.update_lore_entry(lore_entry, %{content: content}) do
-        {:ok, updated} ->
-          {:noreply,
-           assign(socket,
-             selected_lore_entry: updated,
-             lore_entry_form: to_form(Worlds.change_lore_entry(updated))
-           )}
-
-        {:error, _changeset} ->
-          {:noreply, socket}
-      end
-    else
-      {:noreply, socket}
-    end
-  end
-
   def handle_event("close_lore_panel", _params, socket) do
     {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
   end
@@ -498,424 +496,378 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
   defp category_to_lore_type("water"), do: "place"
   defp category_to_lore_type(_), do: "place"
 
-  defp type_icon(type) do
-    case type do
-      "city" -> "hero-building-office-2"
-      "town" -> "hero-home-modern"
-      "village" -> "hero-home"
-      "dungeon" -> "hero-key"
-      "landmark" -> "hero-star"
-      "fortress" -> "hero-shield-check"
-      "ruins" -> "hero-cube-transparent"
-      "natural_feature" -> "hero-globe-americas"
-      "region" -> "hero-map"
-      _ -> "hero-map-pin"
-    end
-  end
+  defp tool_icon("select"), do: "hero-cursor-arrow-rays"
+  defp tool_icon("pan"), do: "hero-hand-raised"
+  defp tool_icon("stamp"), do: "hero-square-2-stack"
+  defp tool_icon("pattern"), do: "hero-squares-plus"
+  defp tool_icon("path"), do: "hero-pencil"
+  defp tool_icon("brush"), do: "hero-paint-brush"
+  defp tool_icon("text"), do: "hero-language"
+  defp tool_icon(_), do: "hero-cursor-arrow-rays"
+
+  defp tool_label("select"), do: "Select"
+  defp tool_label("pan"), do: "Pan"
+  defp tool_label("stamp"), do: "Stamp"
+  defp tool_label("pattern"), do: "Pattern"
+  defp tool_label("path"), do: "Path"
+  defp tool_label("brush"), do: "Brush"
+  defp tool_label("text"), do: "Text"
+  defp tool_label(_), do: "Select"
+
+  defp layer_dot_color("terrain"), do: "bg-green-500"
+  defp layer_dot_color("water"), do: "bg-blue-500"
+  defp layer_dot_color("features"), do: "bg-amber-700"
+  defp layer_dot_color("labels"), do: "bg-gray-400"
+  defp layer_dot_color("effects"), do: "bg-purple-500"
+  defp layer_dot_color(_), do: "bg-gray-500"
 
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex h-screen overflow-hidden bg-base-200">
-      <%!-- Left Toolbar --%>
-      <div class="w-16 bg-base-300 border-r border-base-content/10 flex flex-col items-center py-4 gap-2">
-        <.link
-          navigate={~p"/projects"}
-          class="btn btn-ghost btn-sm btn-square mb-4"
-          title="Back to Projects"
-        >
-          <.icon name="hero-arrow-left" class="w-5 h-5" />
-        </.link>
-
-        <div class="divider my-0"></div>
-        <p class="text-[10px] text-base-content/40 font-serif">TOOLS</p>
-
-        <button
-          :for={type <- @location_types}
-          phx-click="select_type"
-          phx-value-type={type}
-          class={"btn btn-sm btn-square #{if @selected_type == type, do: "btn-primary", else: "btn-ghost"}"}
-          title={String.replace(type, "_", " ") |> String.capitalize()}
-        >
-          <.icon name={type_icon(type)} class="w-5 h-5" />
-        </button>
+    <div class="flex flex-col h-screen overflow-hidden" style="background: #F5EDD6;">
+      <%!-- TOP BAR --%>
+      <div class="h-10 flex items-center px-5 flex-shrink-0" style="background: rgba(245,237,214,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(139,105,20,0.15);">
+        <%!-- Left: breadcrumb --%>
+        <div class="flex items-center gap-2 flex-1 min-w-0">
+          <.icon name="hero-map" class="w-5 h-5 text-amber-500 flex-shrink-0" />
+          <.link
+            navigate={~p"/projects"}
+            class="text-sm text-base-content/60 hover:text-base-content transition-colors truncate"
+          >
+            {@project && @project.name}
+          </.link>
+          <span class="text-base-content/30 flex-shrink-0">&rsaquo;</span>
+          <span class="text-sm font-medium truncate">{@world_map && @world_map.name}</span>
+        </div>
+        <%!-- Center: zoom --%>
+        <div class="flex-1 text-center">
+          <span class="text-xs text-base-content/50 font-mono">{@zoom_level}%</span>
+        </div>
+        <%!-- Right: layers toggle + settings --%>
+        <div class="flex items-center gap-2 flex-1 justify-end">
+          <button
+            phx-click="toggle_layer_panel"
+            class={"btn btn-ghost btn-sm gap-1 #{if @layer_panel_open, do: "text-amber-500"}"}
+          >
+            <.icon name="hero-squares-2x2" class="w-4 h-4" /> Layers
+          </button>
+          <button class="btn btn-ghost btn-sm btn-square" title="Settings">
+            <.icon name="hero-cog-6-tooth" class="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      <%!-- Map Area --%>
-      <div class="flex-1 relative">
-        <div class="absolute top-4 left-4 z-[1000]">
-          <h2 class="text-lg font-serif font-bold text-base-content bg-base-100/80 backdrop-blur px-3 py-1 rounded shadow">
-            {@world_map && @world_map.name}
-          </h2>
-          <p class="text-xs text-base-content/50 bg-base-100/80 backdrop-blur px-3 py-0.5 rounded-b">
-            Click map to place:
-            <span class="font-bold text-primary">{@selected_type |> String.replace("_", " ")}</span>
-          </p>
-        </div>
-
-        <%!-- Layer Panel --%>
-        <div
-          :if={@layer_panel_open}
-          class="absolute top-16 right-4 z-[1000] w-60 bg-base-100/95 backdrop-blur rounded-lg shadow-lg border border-base-content/10"
-        >
-          <div class="flex items-center justify-between px-3 py-2 border-b border-base-content/10">
-            <span class="text-xs font-bold font-serif tracking-wide text-base-content/60">
-              LAYERS
-            </span>
-            <div class="flex gap-1">
-              <button
-                phx-click="add_layer"
-                class="btn btn-ghost btn-xs btn-square"
-                title="Add layer"
-              >
-                <.icon name="hero-plus" class="w-3 h-3" />
-              </button>
-              <button
-                phx-click="toggle_layer_panel"
-                class="btn btn-ghost btn-xs btn-square"
-                title="Close layers"
-              >
-                <.icon name="hero-x-mark" class="w-3 h-3" />
-              </button>
-            </div>
-          </div>
-          <div class="max-h-64 overflow-y-auto">
+      <%!-- MAIN AREA --%>
+      <div class="flex flex-1 overflow-hidden">
+        <%!-- CANVAS AREA --%>
+        <div class="flex-1 flex flex-col relative overflow-hidden">
+          <div class="flex-1 relative">
+            <%!-- Map container --%>
             <div
-              :for={layer <- Enum.reverse(@layers)}
-              class={"flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-base-200 #{if @active_layer == layer.id, do: "bg-primary/10 border-l-2 border-primary", else: "border-l-2 border-transparent"}"}
-              phx-click="set_active_layer"
-              phx-value-id={layer.id}
+              id="map-container"
+              phx-hook="MapEditorHook"
+              phx-update="ignore"
+              data-locations={Jason.encode!(encode_locations(@locations))}
+              class="w-full h-full"
             >
-              <button
-                phx-click="toggle_layer_visibility"
-                phx-value-id={layer.id}
-                class="btn btn-ghost btn-xs btn-square"
-                title={if layer.visible, do: "Hide layer", else: "Show layer"}
-              >
-                <.icon
-                  name={if layer.visible, do: "hero-eye", else: "hero-eye-slash"}
-                  class="w-3.5 h-3.5"
-                />
+            </div>
+
+            <%!-- RADIAL TOOL WHEEL --%>
+            <div id="tool-wheel" class="tool-wheel absolute bottom-4 left-4 z-[100]">
+              <button class="tool-wheel__anchor" type="button" title={tool_label(@active_tool)}>
+                <.icon name={tool_icon(@active_tool)} class="w-6 h-6" />
               </button>
-              <button
-                phx-click="toggle_layer_lock"
-                phx-value-id={layer.id}
-                class="btn btn-ghost btn-xs btn-square"
-                title={if layer.locked, do: "Unlock layer", else: "Lock layer"}
+              <span class="tool-wheel__label">{tool_label(@active_tool)}</span>
+              <div
+                :for={{tool, idx} <- Enum.with_index(@tools)}
+                class="tool-wheel__item"
+                style={"--i: #{idx}; --n: #{length(@tools)}"}
+                phx-click="set_tool"
+                phx-value-tool={tool.id}
               >
-                <.icon
-                  name={if layer.locked, do: "hero-lock-closed", else: "hero-lock-open"}
-                  class={"w-3 h-3 #{if layer.locked, do: "text-warning", else: "text-base-content/30"}"}
-                />
-              </button>
-              <span class="flex-1 text-xs font-medium truncate">{layer.name}</span>
-              <div class="flex gap-0.5">
                 <button
-                  phx-click="reorder_layer"
-                  phx-value-id={layer.id}
-                  phx-value-direction="up"
-                  class="btn btn-ghost btn-xs btn-square"
-                  title="Move up"
+                  class={"tool-wheel__btn #{if @active_tool == tool.id, do: "tool-wheel__btn--active"}"}
+                  type="button"
+                  title={"#{tool.label} (#{tool.key})"}
                 >
-                  <.icon name="hero-chevron-up" class="w-3 h-3" />
-                </button>
-                <button
-                  phx-click="reorder_layer"
-                  phx-value-id={layer.id}
-                  phx-value-direction="down"
-                  class="btn btn-ghost btn-xs btn-square"
-                  title="Move down"
-                >
-                  <.icon name="hero-chevron-down" class="w-3 h-3" />
-                </button>
-                <button
-                  phx-click="remove_layer"
-                  phx-value-id={layer.id}
-                  class="btn btn-ghost btn-xs btn-square text-error/50 hover:text-error"
-                  title="Delete layer"
-                >
-                  <.icon name="hero-trash" class="w-3 h-3" />
+                  <.icon name={tool.icon} class="w-5 h-5" />
                 </button>
               </div>
             </div>
-          </div>
-          <%!-- Opacity slider for active layer --%>
-          <div class="px-3 py-2 border-t border-base-content/10">
-            <div class="flex items-center gap-2">
-              <span class="text-[10px] text-base-content/40 w-12">Opacity</span>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={
-                  Enum.find(@layers, &(&1.id == @active_layer)) &&
-                    Enum.find(@layers, &(&1.id == @active_layer)).opacity
-                }
-                phx-change="set_layer_opacity"
-                phx-value-id={@active_layer}
-                name="opacity"
-                class="range range-xs range-primary flex-1"
-              />
-            </div>
-          </div>
-          <%!-- Light angle slider — controls shadow/light layer direction --%>
-          <div class="px-3 py-2 border-t border-base-content/10">
-            <div class="flex items-center gap-2">
-              <span class="text-[10px] text-base-content/40 w-12 leading-tight">☀️ Light</span>
-              <input
-                type="range"
-                min="-180"
-                max="180"
-                step="5"
-                value={@light_angle_deg}
-                phx-change="set_light_angle"
-                name="angle_deg"
-                class="range range-xs range-warning flex-1"
-                title={"Light angle: #{@light_angle_deg}°"}
-              />
-              <span class="text-[10px] text-base-content/40 w-8 text-right">{@light_angle_deg}°</span>
-            </div>
-          </div>
-        </div>
 
-        <%!-- Layer panel toggle (when closed) --%>
-        <button
-          :if={!@layer_panel_open}
-          phx-click="toggle_layer_panel"
-          class="absolute top-16 right-4 z-[1000] btn btn-sm bg-base-100/95 backdrop-blur shadow border-base-content/10"
-          title="Show layers"
-        >
-          <.icon name="hero-squares-2x2" class="w-4 h-4" /> Layers
-        </button>
-
-        <%!-- Tool Mode Toolbar --%>
-        <div class="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex gap-1 bg-base-100/95 backdrop-blur rounded-lg shadow-lg border border-base-content/10 p-1">
-          <button
-            phx-click="set_tool"
-            phx-value-tool="select"
-            class={"btn btn-sm btn-square #{if @active_tool == "select", do: "btn-primary", else: "btn-ghost"}"}
-            title="Select tool"
-          >
-            <.icon name="hero-cursor-arrow-rays" class="w-4 h-4" />
-          </button>
-          <button
-            phx-click="set_tool"
-            phx-value-tool="stamp"
-            class={"btn btn-sm btn-square #{if @active_tool == "stamp", do: "btn-primary", else: "btn-ghost"}"}
-            title="Stamp tool"
-          >
-            <.icon name="hero-square-2-stack" class="w-4 h-4" />
-          </button>
-        </div>
-
-        <%!-- Asset Library Panel (bottom dock) --%>
-        <div
-          :if={@asset_library != %{}}
-          class="absolute bottom-0 left-0 right-0 z-[1000] bg-base-100/95 backdrop-blur border-t border-base-content/10 shadow-lg"
-        >
-          <div class="flex items-center gap-1 px-3 py-1.5 border-b border-base-content/10">
-            <span class="text-xs font-bold font-serif tracking-wide text-base-content/60 mr-2">
-              STAMPS
-            </span>
-            <button
-              :for={{category, _assets} <- @asset_library}
-              phx-click="set_asset_category"
-              phx-value-category={category}
-              class={"btn btn-xs #{if @active_asset_category == category, do: "btn-primary", else: "btn-ghost"}"}
-            >
-              {category |> String.capitalize()}
-            </button>
-          </div>
-          <div class="flex gap-2 p-3 overflow-x-auto">
+            <%!-- LAYER PANEL (top-right overlay) --%>
             <div
-              :for={asset <- Map.get(@asset_library, @active_asset_category, [])}
-              phx-click="select_stamp"
-              phx-value-id={asset.id}
-              class={"flex flex-col items-center gap-1 p-2 rounded-lg cursor-pointer hover:bg-base-200 transition-colors min-w-[72px] #{if @active_stamp_asset && @active_stamp_asset.id == asset.id, do: "ring-2 ring-primary bg-primary/10", else: ""}"}
+              :if={@layer_panel_open}
+              class="absolute top-3 right-3 z-[100] w-56 bg-base-100/95 backdrop-blur rounded-lg shadow-lg border border-base-content/10"
             >
-              <img
-                src={asset.thumbnail_url}
-                alt={asset.name}
-                class="w-14 h-14 object-contain"
-              />
-              <span class="text-[10px] text-base-content/70 text-center truncate w-16">
-                {asset.name}
-              </span>
+              <div class="flex items-center justify-between px-3 py-2 border-b border-base-content/10">
+                <span class="text-xs font-bold font-serif tracking-wide text-base-content/60">
+                  LAYERS
+                </span>
+                <div class="flex gap-1">
+                  <button
+                    phx-click="add_layer"
+                    class="btn btn-ghost btn-xs btn-square"
+                    title="Add layer"
+                  >
+                    <.icon name="hero-plus" class="w-3 h-3" />
+                  </button>
+                  <button
+                    phx-click="toggle_layer_panel"
+                    class="btn btn-ghost btn-xs btn-square"
+                    title="Close layers"
+                  >
+                    <.icon name="hero-x-mark" class="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+              <div class="max-h-48 overflow-y-auto p-1">
+                <div
+                  :for={layer <- Enum.reverse(@layers)}
+                  class={"flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-base-200 text-xs #{if @active_layer == layer.id, do: "bg-primary/10"}"}
+                  phx-click="set_active_layer"
+                  phx-value-id={layer.id}
+                >
+                  <span class={"w-2 h-2 rounded-full flex-shrink-0 #{layer_dot_color(layer.type)}"}>
+                  </span>
+                  <span class="flex-1 truncate">{layer.name}</span>
+                  <button
+                    phx-click="toggle_layer_visibility"
+                    phx-value-id={layer.id}
+                    class="opacity-50 hover:opacity-100 flex-shrink-0"
+                    title={if layer.visible, do: "Hide layer", else: "Show layer"}
+                  >
+                    <.icon
+                      name={if layer.visible, do: "hero-eye", else: "hero-eye-slash"}
+                      class="w-3.5 h-3.5"
+                    />
+                  </button>
+                </div>
+              </div>
+              <%!-- Opacity slider --%>
+              <div class="px-3 py-2 border-t border-base-content/10">
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] text-base-content/40 w-12">Opacity</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={
+                      Enum.find(@layers, &(&1.id == @active_layer)) &&
+                        Enum.find(@layers, &(&1.id == @active_layer)).opacity
+                    }
+                    phx-change="set_layer_opacity"
+                    phx-value-id={@active_layer}
+                    name="opacity"
+                    class="range range-xs range-primary flex-1"
+                  />
+                </div>
+              </div>
+              <%!-- Light angle slider --%>
+              <div class="px-3 py-2 border-t border-base-content/10">
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] text-base-content/40 w-12 leading-tight">Light</span>
+                  <input
+                    type="range"
+                    min="-180"
+                    max="180"
+                    step="5"
+                    value={@light_angle_deg}
+                    phx-change="set_light_angle"
+                    name="angle_deg"
+                    class="range range-xs range-warning flex-1"
+                    title={"Light angle: #{@light_angle_deg}°"}
+                  />
+                  <span class="text-[10px] text-base-content/40 w-8 text-right">
+                    {@light_angle_deg}°
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div
-          id="map-container"
-          phx-hook="MapEditorHook"
-          phx-update="ignore"
-          data-locations={Jason.encode!(encode_locations(@locations))}
-          class="w-full h-full"
-        >
-        </div>
-      </div>
-
-      <%!-- Right Panel - Lore Entry (stamp click) --%>
-      <div
-        :if={@selected_lore_entry}
-        class="w-80 bg-base-100 border-l border-base-content/10 overflow-y-auto shadow-xl flex-shrink-0"
-      >
-        <div class="p-4">
-          <div class="flex items-center justify-between mb-3">
-            <div class="flex items-center gap-2">
-              <.icon name="hero-book-open" class="w-4 h-4 text-primary" />
-              <span class="text-sm font-bold text-base-content/60 uppercase tracking-wider">
-                Lore
-              </span>
-            </div>
-            <button phx-click="close_lore_panel" class="btn btn-ghost btn-sm btn-square">
-              <.icon name="hero-x-mark" class="w-4 h-4" />
-            </button>
-          </div>
-
-          <.form
-            for={@lore_entry_form}
-            phx-change="update_lore_entry"
-            phx-submit="update_lore_entry"
-          >
-            <.input
-              field={@lore_entry_form[:title]}
-              label="Name"
-              class="font-serif text-lg"
-            />
-            <.input
-              field={@lore_entry_form[:type]}
-              label="Type"
-              type="select"
-              options={
-                Enum.map(ParchmentStudios.Worlds.LoreEntry.valid_types(), fn t ->
-                  {String.capitalize(t), t}
-                end)
-              }
-            />
-          </.form>
-
+          <%!-- Asset library dock (only when stamp tool active) --%>
           <div
-            id={"lore-editor-#{@selected_lore_entry.id}"}
-            phx-hook="LoreEditorHook"
-            phx-update="ignore"
+            :if={@active_tool == "stamp" && @asset_library != %{}}
+            class="bg-base-100/95 border-t border-base-content/10 flex-shrink-0"
           >
-            <label class="label">
-              <span class="label-text text-sm font-medium">Content</span>
-            </label>
-            <div class="flex gap-1 mb-1">
+            <div class="flex items-center gap-1 px-3 py-1.5 border-b border-base-content/10">
+              <span class="text-xs font-bold font-serif tracking-wide text-base-content/60 mr-2">
+                STAMPS
+              </span>
               <button
-                type="button"
-                data-action="bold"
-                class="btn btn-ghost btn-xs font-bold"
-                title="Bold (Ctrl+B)"
+                :for={{category, _assets} <- @asset_library}
+                phx-click="set_asset_category"
+                phx-value-category={category}
+                class={"btn btn-xs #{if @active_asset_category == category, do: "btn-primary", else: "btn-ghost"}"}
               >
-                B
-              </button>
-              <button
-                type="button"
-                data-action="italic"
-                class="btn btn-ghost btn-xs italic"
-                title="Italic (Ctrl+I)"
-              >
-                I
+                {category |> String.capitalize()}
               </button>
             </div>
-            <div
-              contenteditable="true"
-              data-content={@selected_lore_entry.content || ""}
-              class="w-full min-h-[10rem] p-3 bg-base-200 rounded-lg border border-base-content/20 focus:outline-none focus:border-primary text-sm leading-relaxed"
-              style="white-space: pre-wrap; word-wrap: break-word;"
-            >
-              {raw(@selected_lore_entry.content || "")}
+            <div class="flex gap-2 p-3 overflow-x-auto">
+              <div
+                :for={asset <- Map.get(@asset_library, @active_asset_category, [])}
+                phx-click="select_stamp"
+                phx-value-id={asset.id}
+                class={"flex flex-col items-center gap-1 p-2 rounded-lg cursor-pointer hover:bg-base-200 transition-colors min-w-[72px] #{if @active_stamp_asset && @active_stamp_asset.id == asset.id, do: "ring-2 ring-primary bg-primary/10", else: ""}"}
+              >
+                <img
+                  src={asset.thumbnail_url}
+                  alt={asset.name}
+                  class="w-14 h-14 object-contain"
+                />
+                <span class="text-[10px] text-base-content/70 text-center truncate w-16">
+                  {asset.name}
+                </span>
+              </div>
             </div>
-          </div>
-
-          <div class="mt-3 pt-3 border-t border-base-content/10">
-            <p class="text-xs text-base-content/40 font-mono">
-              id: {@selected_lore_entry.id |> String.slice(0, 8)}…
-            </p>
           </div>
         </div>
-      </div>
 
-      <%!-- Right Panel - Location Detail --%>
-      <div
-        :if={@selected_location}
-        class="w-96 bg-base-100 border-l border-base-content/10 overflow-y-auto shadow-xl"
-      >
-        <div class="p-4">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-xl font-serif font-bold">{@selected_location.name}</h3>
-            <button phx-click="close_panel" class="btn btn-ghost btn-sm btn-square">
-              <.icon name="hero-x-mark" class="w-5 h-5" />
-            </button>
-          </div>
+        <%!-- RIGHT PANEL - Lore Entry --%>
+        <div
+          :if={@selected_lore_entry}
+          class="w-[280px] bg-base-100 border-l border-base-content/10 overflow-y-auto flex-shrink-0"
+        >
+          <div class="p-3">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <.icon name="hero-book-open" class="w-4 h-4 text-primary" />
+                <span class="text-sm font-bold text-base-content/60 uppercase tracking-wider">
+                  Lore
+                </span>
+              </div>
+              <button phx-click="close_lore_panel" class="btn btn-ghost btn-sm btn-square">
+                <.icon name="hero-x-mark" class="w-4 h-4" />
+              </button>
+            </div>
 
-          <div class="badge badge-primary badge-sm font-serif mb-4">
-            {@selected_location.type |> String.replace("_", " ") |> String.capitalize()}
-          </div>
-
-          <.form for={@location_form} phx-change="update_location" phx-submit="update_location">
-            <.input field={@location_form[:name]} label="Name" />
-            <.input
-              field={@location_form[:type]}
-              label="Type"
-              type="select"
-              options={
-                Enum.map(@location_types, &{String.replace(&1, "_", " ") |> String.capitalize(), &1})
-              }
-            />
-            <.input field={@location_form[:description]} label="Description" type="textarea" rows="3" />
-            <.input field={@location_form[:lore]} label="Lore" type="textarea" rows="6" />
-          </.form>
-
-          <div class="flex gap-2 mt-4">
-            <button
-              phx-click="generate_lore"
-              class="btn btn-secondary btn-sm flex-1"
-              disabled={@generating_lore}
+            <.form
+              for={@lore_entry_form}
+              phx-change="update_lore_entry"
+              phx-submit="update_lore_entry"
             >
-              <span :if={@generating_lore} class="loading loading-spinner loading-xs"></span>
-              <.icon :if={!@generating_lore} name="hero-sparkles" class="w-4 h-4" /> Generate Lore
-            </button>
-            <button
-              phx-click="generate_artwork"
-              class="btn btn-accent btn-sm flex-1"
-              disabled={@generating_art}
+              <.input field={@lore_entry_form[:title]} label="Name" class="font-serif text-lg" />
+              <.input
+                field={@lore_entry_form[:type]}
+                label="Type"
+                type="select"
+                options={
+                  Enum.map(ParchmentStudios.Worlds.LoreEntry.valid_types(), fn t ->
+                    {String.capitalize(t), t}
+                  end)
+                }
+              />
+              <.input
+                field={@lore_entry_form[:content]}
+                label="Content"
+                type="textarea"
+                rows="10"
+                placeholder="Write the history, secrets, and lore of this place..."
+              />
+            </.form>
+
+            <div class="mt-3 pt-3 border-t border-base-content/10">
+              <p class="text-xs text-base-content/40 font-mono">
+                id: {@selected_lore_entry.id |> String.slice(0, 8)}...
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <%!-- RIGHT PANEL - Location Detail --%>
+        <div
+          :if={@selected_location}
+          class="w-[280px] bg-base-100 border-l border-base-content/10 overflow-y-auto flex-shrink-0"
+        >
+          <div class="p-3">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-lg font-serif font-bold truncate">{@selected_location.name}</h3>
+              <button phx-click="close_panel" class="btn btn-ghost btn-sm btn-square flex-shrink-0">
+                <.icon name="hero-x-mark" class="w-4 h-4" />
+              </button>
+            </div>
+
+            <div class="badge badge-primary badge-sm font-serif mb-3">
+              {@selected_location.type |> String.replace("_", " ") |> String.capitalize()}
+            </div>
+
+            <.form
+              for={@location_form}
+              phx-change="update_location"
+              phx-submit="update_location"
             >
-              <span :if={@generating_art} class="loading loading-spinner loading-xs"></span>
-              <.icon :if={!@generating_art} name="hero-paint-brush" class="w-4 h-4" /> Generate Art
-            </button>
-          </div>
+              <.input field={@location_form[:name]} label="Name" />
+              <.input
+                field={@location_form[:type]}
+                label="Type"
+                type="select"
+                options={
+                  Enum.map(
+                    @location_types,
+                    &{String.replace(&1, "_", " ") |> String.capitalize(), &1}
+                  )
+                }
+              />
+              <.input
+                field={@location_form[:description]}
+                label="Description"
+                type="textarea"
+                rows="3"
+              />
+              <.input field={@location_form[:lore]} label="Lore" type="textarea" rows="5" />
+            </.form>
 
-          <div :if={@selected_location.artwork_url} class="mt-4">
-            <img src={@selected_location.artwork_url} class="rounded-lg w-full" />
-          </div>
+            <div class="flex gap-2 mt-3">
+              <button
+                phx-click="generate_lore"
+                class="btn btn-secondary btn-sm flex-1"
+                disabled={@generating_lore}
+              >
+                <span :if={@generating_lore} class="loading loading-spinner loading-xs"></span>
+                <.icon :if={!@generating_lore} name="hero-sparkles" class="w-4 h-4" /> Generate Lore
+              </button>
+              <button
+                phx-click="generate_artwork"
+                class="btn btn-accent btn-sm flex-1"
+                disabled={@generating_art}
+              >
+                <span :if={@generating_art} class="loading loading-spinner loading-xs"></span>
+                <.icon :if={!@generating_art} name="hero-paint-brush" class="w-4 h-4" /> Generate Art
+              </button>
+            </div>
 
-          <div :if={@selected_location.stats["art_prompt"]} class="mt-4 p-3 bg-base-200 rounded-lg">
-            <p class="text-xs font-bold text-base-content/50 mb-1">Art Prompt</p>
-            <p class="text-xs text-base-content/70 italic">
-              {@selected_location.stats["art_prompt"]}
-            </p>
-          </div>
+            <div :if={@selected_location.artwork_url} class="mt-3">
+              <img src={@selected_location.artwork_url} class="rounded-lg w-full" />
+            </div>
 
-          <div class="mt-4 pt-4 border-t border-base-content/10">
-            <p class="text-xs text-base-content/40">
-              Coords: ({Float.round(@selected_location.latitude, 2)}, {Float.round(
-                @selected_location.longitude,
-                2
-              )})
-            </p>
-            <button
-              phx-click="delete_location"
-              phx-value-id={@selected_location.id}
-              data-confirm="Delete this location?"
-              class="btn btn-ghost btn-xs text-error mt-2"
+            <div
+              :if={@selected_location.stats["art_prompt"]}
+              class="mt-3 p-2 bg-base-200 rounded-lg"
             >
-              <.icon name="hero-trash" class="w-3 h-3" /> Delete Location
-            </button>
+              <p class="text-xs font-bold text-base-content/50 mb-1">Art Prompt</p>
+              <p class="text-xs text-base-content/70 italic">
+                {@selected_location.stats["art_prompt"]}
+              </p>
+            </div>
+
+            <div class="mt-3 pt-3 border-t border-base-content/10">
+              <p class="text-xs text-base-content/40">
+                Coords: ({Float.round(@selected_location.latitude, 2)}, {Float.round(
+                  @selected_location.longitude,
+                  2
+                )})
+              </p>
+              <button
+                phx-click="delete_location"
+                phx-value-id={@selected_location.id}
+                data-confirm="Delete this location?"
+                class="btn btn-ghost btn-xs text-error mt-2"
+              >
+                <.icon name="hero-trash" class="w-3 h-3" /> Delete Location
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -103,3 +103,102 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+
+/* ── Radial Tool Wheel ── */
+.tool-wheel {
+  --anchor-size: 56px;
+  --item-size: 44px;
+  --radius: 80px;
+  --fan-start: -90deg;
+  --fan-span: 150deg;
+}
+
+.tool-wheel__anchor {
+  width: var(--anchor-size);
+  height: var(--anchor-size);
+  border-radius: 50%;
+  background: rgba(253, 250, 243, 0.92);
+  border: 1.5px solid rgba(139, 105, 20, 0.5);
+  color: #8B6914;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  z-index: 10;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+  box-shadow: 0 2px 12px rgba(44, 24, 16, 0.12);
+}
+
+.tool-wheel:hover .tool-wheel__anchor,
+.tool-wheel--open .tool-wheel__anchor {
+  transform: scale(1.05);
+  box-shadow: 0 4px 20px rgba(139, 105, 20, 0.25);
+  border-color: rgba(139, 105, 20, 0.8);
+}
+
+.tool-wheel__label {
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-family: 'Cinzel', serif;
+  color: rgba(44, 24, 16, 0.55);
+  white-space: nowrap;
+  pointer-events: none;
+  width: 80px;
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+
+.tool-wheel__item {
+  position: absolute;
+  bottom: calc(var(--anchor-size) / 2 - var(--item-size) / 2);
+  left: calc(var(--anchor-size) / 2 - var(--item-size) / 2);
+  --angle: calc(var(--fan-start) + var(--fan-span) * var(--i) / (var(--n) - 1));
+  transform: translate(0, 0) scale(0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 150ms ease, opacity 150ms ease;
+  transition-delay: calc(var(--i) * 20ms);
+}
+
+.tool-wheel:hover .tool-wheel__item,
+.tool-wheel--open .tool-wheel__item {
+  transform: translate(
+    calc(cos(var(--angle)) * var(--radius)),
+    calc(sin(var(--angle)) * var(--radius))
+  );
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tool-wheel__btn {
+  width: var(--item-size);
+  height: var(--item-size);
+  border-radius: 50%;
+  background: rgba(253, 250, 243, 0.92);
+  border: 1.5px solid rgba(139, 105, 20, 0.3);
+  color: rgba(44, 24, 16, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 150ms ease;
+  box-shadow: 0 2px 8px rgba(44, 24, 16, 0.1);
+}
+
+.tool-wheel__btn:hover {
+  background: rgba(253, 250, 243, 1);
+  color: #8B6914;
+  border-color: rgba(139, 105, 20, 0.7);
+  box-shadow: 0 3px 12px rgba(139, 105, 20, 0.2);
+}
+
+.tool-wheel__btn--active {
+  background: rgba(245, 237, 214, 1);
+  border-color: #8B6914;
+  color: #8B6914;
+  box-shadow: 0 0 0 2px rgba(139, 105, 20, 0.2);
+}
