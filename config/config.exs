@@ -12,6 +12,12 @@ config :parchment_studios,
   generators: [timestamp_type: :utc_datetime],
   openrouter_api_key: System.get_env("OPENROUTER_API_KEY")
 
+config :parchment_studios, Oban,
+  engine: Oban.Engines.Lite,
+  notifier: Oban.Notifiers.Isolated,
+  repo: ParchmentStudios.Repo,
+  queues: [default: 10, ai: 2]
+
 # Configure the endpoint
 config :parchment_studios, ParchmentStudiosWeb.Endpoint,
   url: [host: "localhost"],

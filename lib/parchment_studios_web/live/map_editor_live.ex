@@ -396,9 +396,17 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
            project_id: project_id
          }) do
       {:ok, lore_entry} ->
-        # Tell canvas to update this MapObject's loreId
+        # Enqueue AI lore generation via Oban
+        %{lore_entry_id: lore_entry.id, stamp_name: name, stamp_type: lore_type}
+        |> ParchmentStudios.Workers.GenerateLore.new()
+        |> Oban.insert()
+
+        # Subscribe to PubSub for this lore entry's generation result
+        Phoenix.PubSub.subscribe(ParchmentStudios.PubSub, "lore:#{lore_entry.id}")
+
         {:noreply,
          socket
+         |> assign(generating_lore: true)
          |> push_event("lore_entry_created", %{stamp_id: stamp_id, lore_id: lore_entry.id})}
 
       {:error, _changeset} ->
@@ -449,6 +457,18 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
 
   def handle_event("close_lore_panel", _params, socket) do
     {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
+  end
+
+  @impl true
+  def handle_info({:lore_generated, lore_entry}, socket) do
+    {:noreply,
+     socket
+     |> assign(
+       generating_lore: false,
+       selected_lore_entry: lore_entry,
+       lore_entry_form: to_form(Worlds.change_lore_entry(lore_entry))
+     )
+     |> push_event("lore_generated", %{lore_id: lore_entry.id})}
   end
 
   defp encode_stamp_asset(asset) do
@@ -526,7 +546,10 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
     ~H"""
     <div class="flex flex-col h-screen overflow-hidden" style="background: #F5EDD6;">
       <%!-- TOP BAR --%>
-      <div class="h-10 flex items-center px-5 flex-shrink-0" style="background: rgba(245,237,214,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(139,105,20,0.15);">
+      <div
+        class="h-10 flex items-center px-5 flex-shrink-0"
+        style="background: rgba(245,237,214,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(139,105,20,0.15);"
+      >
         <%!-- Left: breadcrumb --%>
         <div class="flex items-center gap-2 flex-1 min-w-0">
           <.icon name="hero-map" class="w-5 h-5 text-amber-500 flex-shrink-0" />
@@ -727,7 +750,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
 
         <%!-- RIGHT PANEL - Lore Entry --%>
         <div
-          :if={@selected_lore_entry}
+          :if={@selected_lore_entry || @generating_lore}
           class="w-[280px] bg-base-100 border-l border-base-content/10 overflow-y-auto flex-shrink-0"
         >
           <div class="p-3">
@@ -743,35 +766,49 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
               </button>
             </div>
 
-            <.form
-              for={@lore_entry_form}
-              phx-change="update_lore_entry"
-              phx-submit="update_lore_entry"
+            <div
+              :if={@generating_lore && !@selected_lore_entry}
+              class="flex items-center gap-2 py-8 justify-center text-base-content/60"
             >
-              <.input field={@lore_entry_form[:title]} label="Name" class="font-serif text-lg" />
-              <.input
-                field={@lore_entry_form[:type]}
-                label="Type"
-                type="select"
-                options={
-                  Enum.map(ParchmentStudios.Worlds.LoreEntry.valid_types(), fn t ->
-                    {String.capitalize(t), t}
-                  end)
-                }
-              />
-              <.input
-                field={@lore_entry_form[:content]}
-                label="Content"
-                type="textarea"
-                rows="10"
-                placeholder="Write the history, secrets, and lore of this place..."
-              />
-            </.form>
+              <span class="loading loading-spinner loading-sm"></span>
+              <span class="text-sm">Generating lore...</span>
+            </div>
 
-            <div class="mt-3 pt-3 border-t border-base-content/10">
-              <p class="text-xs text-base-content/40 font-mono">
-                id: {@selected_lore_entry.id |> String.slice(0, 8)}...
-              </p>
+            <div :if={@selected_lore_entry}>
+              <.form
+                for={@lore_entry_form}
+                phx-change="update_lore_entry"
+                phx-submit="update_lore_entry"
+              >
+                <.input
+                  field={@lore_entry_form[:title]}
+                  label="Name"
+                  class="font-serif text-lg"
+                />
+                <.input
+                  field={@lore_entry_form[:type]}
+                  label="Type"
+                  type="select"
+                  options={
+                    Enum.map(ParchmentStudios.Worlds.LoreEntry.valid_types(), fn t ->
+                      {String.capitalize(t), t}
+                    end)
+                  }
+                />
+                <.input
+                  field={@lore_entry_form[:content]}
+                  label="Content"
+                  type="textarea"
+                  rows="10"
+                  placeholder="Write the history, secrets, and lore of this place..."
+                />
+              </.form>
+
+              <div class="mt-3 pt-3 border-t border-base-content/10">
+                <p class="text-xs text-base-content/40 font-mono">
+                  id: {to_string(@selected_lore_entry.id) |> String.slice(0, 8)}...
+                </p>
+              </div>
             </div>
           </div>
         </div>

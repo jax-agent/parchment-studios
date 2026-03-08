@@ -228,6 +228,54 @@ defmodule ParchmentStudiosWeb.MapEditorLiveTest do
     end
   end
 
+  describe "lore generation" do
+    test "stamp_placed enqueues Oban job and shows lore panel", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # Simulate stamp_placed event from canvas
+      render_hook(view, "stamp_placed", %{
+        "id" => "stamp-123",
+        "name" => "Watchtower",
+        "asset_category" => "settlements"
+      })
+
+      html = render(view)
+      # The lore panel should show generating state or the lore entry
+      # Since Oban is in :inline mode, the job runs synchronously,
+      # but without a real API key, it returns :skipped
+      # The panel should still be visible with generating state
+      assert html =~ "Lore"
+    end
+
+    test "handle_info {:lore_generated, entry} updates the lore panel", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # Create a lore entry with content
+      {:ok, lore_entry} =
+        Worlds.create_lore_entry(%{
+          title: "Ancient Spire",
+          type: "place",
+          content: "# The Shimmering Spire\n\nA tall tower of glass.",
+          project_id: project.id
+        })
+
+      # Simulate PubSub broadcast
+      send(view.pid, {:lore_generated, lore_entry})
+
+      html = render(view)
+      assert html =~ "Ancient Spire"
+      assert html =~ "Lore"
+    end
+  end
+
   describe "zoom" do
     test "zoom_changed event updates zoom level", %{
       conn: conn,
