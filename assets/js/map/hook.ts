@@ -1,7 +1,7 @@
 import { MapRenderer, Viewport } from './renderer';
 import { LayerManager } from './layers';
 import { CommandHistory, MoveObjectCommand, AddStampCommand, RemoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand } from './commands';
-import type { MapObject, MapState, ToolMode } from './types';
+import type { MapObject, MapState, ToolMode, StampLayer, StampLayerType, BlendMode } from './types';
 
 interface HookContext {
   el: HTMLElement;
@@ -43,6 +43,7 @@ export const MapEditorHook = {
     this._dragObjStartY = 0;
     // Global map state — lightAngle: 0 = east, -π/4 = classic top-left fantasy light
     this._mapState = { lightAngle: -Math.PI / 4 } as MapState;
+    this._activeStampAsset = null as any;
 
     // Init CanvasKit (async)
     this._renderer.init(canvas).then(() => {
@@ -62,12 +63,28 @@ export const MapEditorHook = {
         if (this._toolMode === 'stamp') {
           // Stamp mode: place a stamp at click position
           const world = viewport().screenToWorld(e.offsetX, e.offsetY);
-          // Two-layer stamp: base + shadow (keyed to lightAngle) — demonstrates M0.2 compositing
           const ts = Date.now();
-          const cmd = new AddStampCommand(this._layers, 'features', {
-            x: world.x - 20, y: world.y - 20,
-            width: 40, height: 40,
-            stampLayers: [
+          const size = 64;
+
+          let stampLayers: StampLayer[];
+          let label: string;
+
+          if (this._activeStampAsset) {
+            const asset = this._activeStampAsset;
+            label = asset.name;
+            stampLayers = asset.layers.map((layer: any, i: number) => ({
+              id: `${layer.id}-${ts}-${i}`,
+              type: layer.type as StampLayerType,
+              blendMode: layer.blendMode as BlendMode,
+              opacity: layer.opacity ?? 1,
+              visible: layer.visible ?? true,
+              frames: layer.frames ?? [],
+              fps: layer.fps ?? 0,
+              keyed_to: layer.keyed_to,
+            }));
+          } else {
+            label = 'Stamp';
+            stampLayers = [
               {
                 id: `base-${ts}`,
                 type: 'base' as const,
@@ -87,15 +104,21 @@ export const MapEditorHook = {
                 fps: 0,
                 keyed_to: 'lightAngle',
               },
-            ],
-            label: 'Stamp',
+            ];
+          }
+
+          const cmd = new AddStampCommand(this._layers, 'features', {
+            x: world.x - size / 2, y: world.y - size / 2,
+            width: size, height: size,
+            stampLayers,
+            label,
           });
           this._history.execute(cmd);
           this._renderer.requestRedraw();
           this.pushEvent('stamp_placed', {
             id: cmd.getAddedId(),
-            x: world.x - 20, y: world.y - 20,
-            width: 40, height: 40,
+            x: world.x - size / 2, y: world.y - size / 2,
+            width: size, height: size,
           });
         } else {
           // Select mode: check for hit
@@ -234,8 +257,11 @@ export const MapEditorHook = {
       }
     });
 
-    this.handleEvent('set_tool', (data: { tool: string }) => {
+    this.handleEvent('set_tool', (data: { tool: string; stamp_asset?: any }) => {
       this._toolMode = data.tool as ToolMode;
+      if (data.stamp_asset) {
+        this._activeStampAsset = data.stamp_asset;
+      }
       this._selectedObject = null;
       this._renderer.requestRedraw();
     });

@@ -148,6 +148,8 @@ export class MapRenderer {
   private bgImage: any | null = null;
   private bgImageWidth = 0;
   private bgImageHeight = 0;
+  private imageCache: Map<string, any> = new Map();
+  private loadingImages: Set<string> = new Set();
 
   getViewport(): Viewport {
     return this.viewport;
@@ -223,6 +225,27 @@ export class MapRenderer {
     ];
   }
 
+  private async loadImage(url: string): Promise<void> {
+    if (this.imageCache.has(url) || this.loadingImages.has(url)) return;
+    if (!this.ck) return;
+
+    this.loadingImages.add(url);
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) return;
+      const buf = await resp.arrayBuffer();
+      const img = this.ck.MakeImageFromEncoded(new Uint8Array(buf));
+      if (img) {
+        this.imageCache.set(url, img);
+        this.requestRedraw();
+      }
+    } catch {
+      // silently fall back to placeholder
+    } finally {
+      this.loadingImages.delete(url);
+    }
+  }
+
   /**
    * Composite the stampLayers[] of a single MapObject onto the canvas.
    * Each StampLayer is drawn as a placeholder colored rect with its blend mode applied.
@@ -263,14 +286,7 @@ export class MapRenderer {
         const paint = new ck.Paint();
         try {
           paint.setAntiAlias(true);
-
-          // Placeholder color per stamp layer type
-          const [r, g, b] = STAMP_LAYER_COLORS[sl.type] ?? STAMP_LAYER_COLORS.base;
-          paint.setColor(ck.Color(r, g, b, 255));
-          paint.setStyle(ck.PaintStyle.Fill);
           paint.setAlphaf(baseAlpha * sl.opacity);
-
-          // Blend mode
           paint.setBlendMode(blendModeValue(ck, sl.blendMode));
 
           // Light-keyed offset (shadow / light layers shift with lightAngle)
@@ -278,13 +294,33 @@ export class MapRenderer {
             ? lightKeyedOffset(sl.type, lightAngle)
             : { dx: 0, dy: 0 };
 
-          const rect = ck.LTRBRect(
-            offset.dx,
-            offset.dy,
-            obj.width + offset.dx,
-            obj.height + offset.dy,
-          );
-          canvas.drawRect(rect, paint);
+          const imageUrl = sl.frames.length > 0 ? sl.frames[0] : null;
+          const cachedImage = imageUrl ? this.imageCache.get(imageUrl) : null;
+
+          if (cachedImage) {
+            // Draw real PNG image
+            const srcRect = ck.LTRBRect(0, 0, cachedImage.width(), cachedImage.height());
+            const dstRect = ck.LTRBRect(
+              offset.dx, offset.dy,
+              obj.width + offset.dx, obj.height + offset.dy,
+            );
+            canvas.drawImageRect(cachedImage, srcRect, dstRect, paint);
+          } else {
+            // Placeholder colored rect
+            const [r, g, b] = STAMP_LAYER_COLORS[sl.type] ?? STAMP_LAYER_COLORS.base;
+            paint.setColor(ck.Color(r, g, b, 255));
+            paint.setStyle(ck.PaintStyle.Fill);
+            const rect = ck.LTRBRect(
+              offset.dx, offset.dy,
+              obj.width + offset.dx, obj.height + offset.dy,
+            );
+            canvas.drawRect(rect, paint);
+
+            // Trigger async load if URL exists but not yet cached
+            if (imageUrl) {
+              this.loadImage(imageUrl);
+            }
+          }
         } finally {
           paint.delete();
         }
@@ -423,6 +459,10 @@ export class MapRenderer {
 
   destroy(): void {
     this.stopRenderLoop();
+    for (const img of this.imageCache.values()) {
+      img.delete();
+    }
+    this.imageCache.clear();
     if (this.font) {
       this.font.delete();
       this.font = null;
