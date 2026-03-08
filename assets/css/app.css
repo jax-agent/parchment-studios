@@ -117,9 +117,9 @@
   width: var(--anchor-size);
   height: var(--anchor-size);
   border-radius: 50%;
-  background: oklch(25% 0.01 250);
-  border: 2px solid oklch(65% 0.18 75);
-  color: oklch(75% 0.15 75);
+  background: rgba(253, 250, 243, 0.92);
+  border: 1.5px solid rgba(139, 105, 20, 0.5);
+  color: #8B6914;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -127,25 +127,29 @@
   position: relative;
   z-index: 10;
   transition: transform 150ms ease, box-shadow 150ms ease;
+  box-shadow: 0 2px 12px rgba(44, 24, 16, 0.12);
 }
 
 .tool-wheel:hover .tool-wheel__anchor,
 .tool-wheel--open .tool-wheel__anchor {
   transform: scale(1.05);
-  box-shadow: 0 0 20px oklch(65% 0.18 75 / 0.3);
+  box-shadow: 0 4px 20px rgba(139, 105, 20, 0.25);
+  border-color: rgba(139, 105, 20, 0.8);
 }
 
 .tool-wheel__label {
   position: absolute;
-  bottom: -18px;
+  bottom: -20px;
   left: 50%;
   transform: translateX(-50%);
   font-size: 10px;
-  color: oklch(80% 0 0 / 0.6);
+  font-family: 'Cinzel', serif;
+  color: rgba(44, 24, 16, 0.55);
   white-space: nowrap;
   pointer-events: none;
-  width: var(--anchor-size);
+  width: 80px;
   text-align: center;
+  letter-spacing: 0.05em;
 }
 
 .tool-wheel__item {
@@ -174,25 +178,27 @@
   width: var(--item-size);
   height: var(--item-size);
   border-radius: 50%;
-  background: oklch(30% 0.01 250);
-  border: 1.5px solid oklch(50% 0.05 250);
-  color: oklch(70% 0 0);
+  background: rgba(253, 250, 243, 0.92);
+  border: 1.5px solid rgba(139, 105, 20, 0.3);
+  color: rgba(44, 24, 16, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 150ms ease;
+  box-shadow: 0 2px 8px rgba(44, 24, 16, 0.1);
 }
 
 .tool-wheel__btn:hover {
-  background: oklch(35% 0.02 250);
-  color: oklch(85% 0 0);
-  border-color: oklch(65% 0.18 75);
+  background: rgba(253, 250, 243, 1);
+  color: #8B6914;
+  border-color: rgba(139, 105, 20, 0.7);
+  box-shadow: 0 3px 12px rgba(139, 105, 20, 0.2);
 }
 
 .tool-wheel__btn--active {
-  background: oklch(35% 0.05 75);
-  border-color: oklch(65% 0.18 75);
-  color: oklch(80% 0.15 75);
-  box-shadow: 0 0 8px oklch(65% 0.18 75 / 0.4);
+  background: rgba(245, 237, 214, 1);
+  border-color: #8B6914;
+  color: #8B6914;
+  box-shadow: 0 0 0 2px rgba(139, 105, 20, 0.2);
 }

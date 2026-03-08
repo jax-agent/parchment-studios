@@ -524,9 +524,9 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col h-screen overflow-hidden bg-base-300">
+    <div class="flex flex-col h-screen overflow-hidden" style="background: #F5EDD6;">
       <%!-- TOP BAR --%>
-      <div class="h-12 bg-base-200 border-b border-base-content/10 flex items-center px-4 flex-shrink-0">
+      <div class="h-10 flex items-center px-5 flex-shrink-0" style="background: rgba(245,237,214,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(139,105,20,0.15);">
         <%!-- Left: breadcrumb --%>
         <div class="flex items-center gap-2 flex-1 min-w-0">
           <.icon name="hero-map" class="w-5 h-5 text-amber-500 flex-shrink-0" />
