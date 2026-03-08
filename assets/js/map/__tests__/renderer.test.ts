@@ -178,3 +178,80 @@ describe('hitTest', () => {
     expect(hit!.id).toBe(top.id);
   });
 });
+
+describe('fly-to viewport centering', () => {
+  it('pan delta centers object in a 800x600 canvas', () => {
+    const viewport = new Viewport();
+    const canvasW = 800;
+    const canvasH = 600;
+
+    // Object at world coords (200, 150) with size 64x64
+    const objCenterX = 200 + 32;
+    const objCenterY = 150 + 32;
+
+    const zoom = viewport.getZoom(); // 1.0
+    const targetPanX = canvasW / 2 - objCenterX * zoom;
+    const targetPanY = canvasH / 2 - objCenterY * zoom;
+
+    viewport.pan(targetPanX, targetPanY);
+
+    // Object center should now map to canvas center
+    const screen = viewport.worldToScreen(objCenterX, objCenterY);
+    expect(screen.x).toBeCloseTo(canvasW / 2, 5);
+    expect(screen.y).toBeCloseTo(canvasH / 2, 5);
+  });
+
+  it('pan delta centers object when zoomed', () => {
+    const viewport = new Viewport();
+    const canvasW = 800;
+    const canvasH = 600;
+
+    viewport.zoomTo(2.0, 0, 0);
+    // Apply some existing pan
+    viewport.pan(50, -30);
+
+    const objCenterX = 300 + 32;
+    const objCenterY = 400 + 32;
+
+    const zoom = viewport.getZoom();
+    const startPan = viewport.getPan();
+    const targetPanX = canvasW / 2 - objCenterX * zoom;
+    const targetPanY = canvasH / 2 - objCenterY * zoom;
+
+    // Apply the delta
+    viewport.pan(targetPanX - startPan.x, targetPanY - startPan.y);
+
+    const screen = viewport.worldToScreen(objCenterX, objCenterY);
+    expect(screen.x).toBeCloseTo(canvasW / 2, 5);
+    expect(screen.y).toBeCloseTo(canvasH / 2, 5);
+  });
+
+  it('incremental pan updates converge to target (simulating animation)', () => {
+    const viewport = new Viewport();
+    const canvasW = 800;
+    const canvasH = 600;
+
+    const objCenterX = 500;
+    const objCenterY = 400;
+
+    const zoom = viewport.getZoom();
+    const startPan = viewport.getPan();
+    const targetPanX = canvasW / 2 - objCenterX * zoom;
+    const targetPanY = canvasH / 2 - objCenterY * zoom;
+
+    // Simulate 10 animation frames with ease-out
+    const steps = 10;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const ease = 1 - Math.pow(1 - t, 3);
+      const currentPan = viewport.getPan();
+      const nextX = startPan.x + (targetPanX - startPan.x) * ease;
+      const nextY = startPan.y + (targetPanY - startPan.y) * ease;
+      viewport.pan(nextX - currentPan.x, nextY - currentPan.y);
+    }
+
+    const screen = viewport.worldToScreen(objCenterX, objCenterY);
+    expect(screen.x).toBeCloseTo(canvasW / 2, 3);
+    expect(screen.y).toBeCloseTo(canvasH / 2, 3);
+  });
+});

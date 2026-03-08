@@ -408,6 +408,52 @@ export const MapEditorHook = {
       }
     });
 
+    // Fly-to: animate viewport to center on a specific map object
+    this.handleEvent('fly_to_object', (data: { object_id: string }) => {
+      let target: MapObject | null = null;
+      for (const layer of this._layers.getLayers()) {
+        const obj = layer.objects.find((o: MapObject) => o.id === data.object_id);
+        if (obj) {
+          target = obj;
+          break;
+        }
+      }
+      if (!target) return;
+
+      const vp = viewport();
+      const zoom = vp.getZoom();
+      const startPan = vp.getPan();
+
+      const objCenterX = target.x + target.width / 2;
+      const objCenterY = target.y + target.height / 2;
+      const targetPanX = canvas.width / 2 - objCenterX * zoom;
+      const targetPanY = canvas.height / 2 - objCenterY * zoom;
+
+      const startTime = performance.now();
+      const duration = 300;
+
+      const animateFly = (now: number) => {
+        const t = Math.min((now - startTime) / duration, 1);
+        const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
+
+        const currentPan = vp.getPan();
+        const nextX = startPan.x + (targetPanX - startPan.x) * ease;
+        const nextY = startPan.y + (targetPanY - startPan.y) * ease;
+        vp.pan(nextX - currentPan.x, nextY - currentPan.y);
+
+        this._renderer.requestRedraw();
+
+        if (t < 1) {
+          requestAnimationFrame(animateFly);
+        } else {
+          this._selectedObject = target;
+          this._renderer.requestRedraw();
+        }
+      };
+
+      requestAnimationFrame(animateFly);
+    });
+
     // Radial tool wheel interaction (pure JS, no LiveView round-trip for open/close)
     const wheelEl = container.parentElement?.querySelector('#tool-wheel');
     if (wheelEl) {

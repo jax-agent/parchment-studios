@@ -66,6 +66,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
        # Lore panel
        selected_lore_entry: nil,
        lore_entry_form: nil,
+       selected_object_id: nil,
        # Editor chrome
        zoom_level: 100,
        tools: @tools
@@ -406,7 +407,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
 
         {:noreply,
          socket
-         |> assign(generating_lore: true)
+         |> assign(generating_lore: true, selected_object_id: stamp_id)
          |> push_event("lore_entry_created", %{stamp_id: stamp_id, lore_id: lore_entry.id})}
 
       {:error, _changeset} ->
@@ -420,23 +421,45 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
   end
 
   # When a stamp is clicked (no loreId) → just deselect lore panel
-  def handle_event("object_selected", %{"lore_id" => nil}, socket) do
-    {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
+  def handle_event("object_selected", %{"id" => id, "lore_id" => nil}, socket) do
+    {:noreply,
+     assign(socket,
+       selected_lore_entry: nil,
+       lore_entry_form: nil,
+       selected_object_id: id
+     )}
   end
 
-  def handle_event("object_selected", %{"lore_id" => ""}, socket) do
-    {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
+  def handle_event("object_selected", %{"id" => id, "lore_id" => ""}, socket) do
+    {:noreply,
+     assign(socket,
+       selected_lore_entry: nil,
+       lore_entry_form: nil,
+       selected_object_id: id
+     )}
   end
 
   # When a stamp with a loreId is clicked → open the lore panel
-  def handle_event("object_selected", %{"lore_id" => lore_id}, socket) when is_binary(lore_id) do
+  def handle_event("object_selected", %{"id" => id, "lore_id" => lore_id}, socket)
+      when is_binary(lore_id) do
     lore_entry = Worlds.get_lore_entry!(lore_id)
     form = to_form(Worlds.change_lore_entry(lore_entry))
-    {:noreply, assign(socket, selected_lore_entry: lore_entry, lore_entry_form: form)}
+
+    {:noreply,
+     assign(socket,
+       selected_lore_entry: lore_entry,
+       lore_entry_form: form,
+       selected_object_id: id
+     )}
   end
 
   def handle_event("object_selected", _params, socket) do
-    {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
+    {:noreply,
+     assign(socket,
+       selected_lore_entry: nil,
+       lore_entry_form: nil,
+       selected_object_id: nil
+     )}
   end
 
   def handle_event("update_lore_entry", %{"lore_entry" => params}, socket) do
@@ -455,8 +478,18 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
     end
   end
 
+  def handle_event("find_on_map", _params, socket) do
+    if socket.assigns.selected_object_id do
+      {:noreply,
+       push_event(socket, "fly_to_object", %{object_id: socket.assigns.selected_object_id})}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("close_lore_panel", _params, socket) do
-    {:noreply, assign(socket, selected_lore_entry: nil, lore_entry_form: nil)}
+    {:noreply,
+     assign(socket, selected_lore_entry: nil, lore_entry_form: nil, selected_object_id: nil)}
   end
 
   @impl true
@@ -805,6 +838,13 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
               </.form>
 
               <div class="mt-3 pt-3 border-t border-base-content/10">
+                <button
+                  :if={@selected_object_id}
+                  phx-click="find_on_map"
+                  class="btn btn-ghost btn-sm gap-1 w-full mb-2"
+                >
+                  <.icon name="hero-map-pin" class="w-4 h-4" /> Find on Map
+                </button>
                 <p class="text-xs text-base-content/40 font-mono">
                   id: {to_string(@selected_lore_entry.id) |> String.slice(0, 8)}...
                 </p>
