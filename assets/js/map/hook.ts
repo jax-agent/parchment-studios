@@ -44,6 +44,9 @@ export const MapEditorHook = {
     // Global map state — lightAngle: 0 = east, -π/4 = classic top-left fantasy light
     this._mapState = { lightAngle: -Math.PI / 4 } as MapState;
     this._activeStampAsset = null as any;
+    // Space bar pan state
+    this._spaceHeld = false;
+    this._previousTool = null as ToolMode | null;
 
     // Init CanvasKit (async)
     this._renderer.init(canvas).then(() => {
@@ -60,7 +63,13 @@ export const MapEditorHook = {
 
     canvas.addEventListener('mousedown', (e: MouseEvent) => {
       if (e.button === 0) {
-        if (this._toolMode === 'stamp') {
+        if (this._toolMode === 'pan') {
+          // Pan mode: left click pans
+          this._isPanning = true;
+          this._dragStartX = e.offsetX;
+          this._dragStartY = e.offsetY;
+          canvas.style.cursor = 'grabbing';
+        } else if (this._toolMode === 'stamp') {
           // Stamp mode: place a stamp at click position
           const world = viewport().screenToWorld(e.offsetX, e.offsetY);
           const ts = Date.now();
@@ -187,6 +196,9 @@ export const MapEditorHook = {
       }
       this._isDragging = false;
       this._isPanning = false;
+      if (this._toolMode === 'pan') {
+        canvas.style.cursor = 'grab';
+      }
     });
 
     canvas.addEventListener('wheel', (e: WheelEvent) => {
@@ -196,6 +208,7 @@ export const MapEditorHook = {
       const newZoom = Math.max(0.1, Math.min(10, currentZoom * zoomDelta));
       viewport().zoomTo(newZoom, e.offsetX, e.offsetY);
       this._renderer.requestRedraw();
+      this.pushEvent('zoom_changed', { zoom: viewport().getZoom() });
     }, { passive: false });
 
     // Prevent context menu on middle click
@@ -203,9 +216,38 @@ export const MapEditorHook = {
       e.preventDefault();
     });
 
+    // Tool shortcut map
+    const toolShortcuts: Record<string, ToolMode> = {
+      v: 'select', h: 'pan', s: 'stamp', p: 'pattern', l: 'path', b: 'brush', t: 'text',
+    };
+    const toolLabels: Record<string, string> = {
+      select: 'Select', pan: 'Pan', stamp: 'Stamp', pattern: 'Pattern',
+      path: 'Path', brush: 'Brush', text: 'Text',
+    };
+
+    const isInputFocused = () => {
+      const tag = document.activeElement?.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+
+    const setToolFromJS = (tool: ToolMode) => {
+      this._toolMode = tool;
+      this._selectedObject = null;
+      this.pushEvent('set_tool', { tool });
+      this._renderer.requestRedraw();
+      // Update radial wheel label
+      const labelEl = document.querySelector('.tool-wheel__label');
+      if (labelEl) labelEl.textContent = toolLabels[tool] || 'Select';
+      // Update cursor for pan tool
+      canvas.style.cursor = tool === 'pan' ? 'grab' : '';
+    };
+
     // Keyboard shortcuts
     const keyHandler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      const mod = e.ctrlKey || e.metaKey;
+
+      // Undo/Redo
+      if (mod && e.key === 'z') {
         e.preventDefault();
         if (e.shiftKey) {
           this._history.redo();
@@ -213,18 +255,68 @@ export const MapEditorHook = {
           this._history.undo();
         }
         this._renderer.requestRedraw();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-        // Ctrl+Y / Cmd+Y = redo (Windows/Linux convention)
+        return;
+      }
+      if (mod && e.key === 'y') {
         e.preventDefault();
         this._history.redo();
         this._renderer.requestRedraw();
-      } else if (e.key === 'Escape') {
-        // Escape = deselect
+        return;
+      }
+
+      // Zoom shortcuts
+      if (mod && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        const newZoom = Math.min(10, viewport().getZoom() * 1.2);
+        viewport().zoomTo(newZoom, cx, cy);
+        this._renderer.requestRedraw();
+        this.pushEvent('zoom_changed', { zoom: viewport().getZoom() });
+        return;
+      }
+      if (mod && e.key === '-') {
+        e.preventDefault();
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        const newZoom = Math.max(0.1, viewport().getZoom() * 0.8);
+        viewport().zoomTo(newZoom, cx, cy);
+        this._renderer.requestRedraw();
+        this.pushEvent('zoom_changed', { zoom: viewport().getZoom() });
+        return;
+      }
+      if (mod && e.key === '0') {
+        e.preventDefault();
+        viewport().zoomTo(1, canvas.width / 2, canvas.height / 2);
+        viewport().pan(-viewport().panX, -viewport().panY);
+        this._renderer.requestRedraw();
+        this.pushEvent('zoom_changed', { zoom: 1 });
+        return;
+      }
+
+      // Skip tool shortcuts if typing in an input
+      if (isInputFocused()) return;
+
+      // Space bar pan (Figma-style)
+      if (e.key === ' ' && !this._spaceHeld) {
+        e.preventDefault();
+        this._spaceHeld = true;
+        this._previousTool = this._toolMode;
+        this._toolMode = 'pan' as ToolMode;
+        canvas.style.cursor = 'grab';
+        return;
+      }
+
+      // Escape = deselect
+      if (e.key === 'Escape') {
         this._selectedObject = null;
         this._isDragging = false;
-        this._renderer.requestRedraw();
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Delete = remove selected stamp (undoable)
+        setToolFromJS('select');
+        return;
+      }
+
+      // Delete = remove selected stamp
+      if (e.key === 'Delete' || e.key === 'Backspace') {
         if (this._selectedObject) {
           const layerId = this._findLayerForObject(this._selectedObject.id);
           if (layerId) {
@@ -234,10 +326,34 @@ export const MapEditorHook = {
             this._renderer.requestRedraw();
           }
         }
+        return;
+      }
+
+      // Tool shortcuts (single key, no modifiers)
+      if (!mod && !e.shiftKey && !e.altKey) {
+        const tool = toolShortcuts[e.key.toLowerCase()];
+        if (tool) {
+          e.preventDefault();
+          setToolFromJS(tool);
+        }
       }
     };
     window.addEventListener('keydown', keyHandler);
     this._keyHandler = keyHandler;
+
+    // Space bar release → restore previous tool
+    const keyUpHandler = (e: KeyboardEvent) => {
+      if (e.key === ' ' && this._spaceHeld) {
+        this._spaceHeld = false;
+        const prev = this._previousTool || 'select';
+        this._toolMode = prev as ToolMode;
+        this._previousTool = null;
+        canvas.style.cursor = prev === 'pan' ? 'grab' : '';
+        this._renderer.requestRedraw();
+      }
+    };
+    window.addEventListener('keyup', keyUpHandler);
+    this._keyUpHandler = keyUpHandler;
 
     // LiveView push event handlers
     this.handleEvent('layer_visibility_changed', (data: { id: string; visible: boolean }) => {
@@ -280,12 +396,10 @@ export const MapEditorHook = {
 
     // When server creates a LoreEntry for a stamp, update the MapObject's loreId
     this.handleEvent('lore_entry_created', (data: { stamp_id: string; lore_id: string }) => {
-      // Find which layer holds this stamp and update its loreId
       for (const layer of this._layers.getLayers()) {
         const obj = layer.objects.find((o: MapObject) => o.id === data.stamp_id);
         if (obj) {
           this._layers.updateObject(layer.id, data.stamp_id, { loreId: data.lore_id });
-          // Update selected reference if this is the currently selected object
           if (this._selectedObject?.id === data.stamp_id) {
             this._selectedObject = { ...this._selectedObject, loreId: data.lore_id };
           }
@@ -293,6 +407,16 @@ export const MapEditorHook = {
         }
       }
     });
+
+    // Radial tool wheel interaction (pure JS, no LiveView round-trip for open/close)
+    const wheelEl = container.parentElement?.querySelector('#tool-wheel');
+    if (wheelEl) {
+      wheelEl.addEventListener('mouseenter', () => wheelEl.classList.add('tool-wheel--open'));
+      wheelEl.addEventListener('mouseleave', () => wheelEl.classList.remove('tool-wheel--open'));
+      wheelEl.querySelectorAll('.tool-wheel__item').forEach((item) => {
+        item.addEventListener('click', () => wheelEl.classList.remove('tool-wheel--open'));
+      });
+    }
   },
 
   destroyed(this: HookContext & Record<string, any>) {
@@ -304,6 +428,9 @@ export const MapEditorHook = {
     }
     if (this._keyHandler) {
       window.removeEventListener('keydown', this._keyHandler);
+    }
+    if (this._keyUpHandler) {
+      window.removeEventListener('keyup', this._keyUpHandler);
     }
   },
 

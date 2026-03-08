@@ -62,7 +62,7 @@ export interface MapObject {
   data: Record<string, unknown>;
 }
 
-export type ToolMode = 'select' | 'stamp';
+export type ToolMode = 'select' | 'pan' | 'stamp' | 'pattern' | 'path' | 'brush' | 'text';
 
 /**
  * Global map state passed to the renderer each frame.
