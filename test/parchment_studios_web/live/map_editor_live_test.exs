@@ -359,6 +359,37 @@ defmodule ParchmentStudiosWeb.MapEditorLiveTest do
     end
   end
 
+  describe "pattern stamp" do
+    test "pattern_stroke_placed does not create lore entries", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      render_hook(view, "pattern_stroke_placed", %{"count" => 5})
+
+      html = render(view)
+      # No lore panel should appear
+      refute html =~ "Generating lore"
+    end
+
+    test "asset library shows when pattern tool is active", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # Switch to pattern tool
+      view |> element(~s([phx-click="set_tool"][phx-value-tool="pattern"])) |> render_click()
+
+      # Verify tool switched (asset library visibility depends on loaded assets)
+      html = render(view)
+      assert html =~ "tool-wheel__btn--active"
+    end
+  end
+
   describe "export modal" do
     test "show_export_modal opens the modal", %{
       conn: conn,

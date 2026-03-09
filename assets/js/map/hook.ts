@@ -1,7 +1,7 @@
 import { MapRenderer, Viewport } from './renderer';
 import type { PreviewStroke } from './renderer';
 import { LayerManager } from './layers';
-import { CommandHistory, MoveObjectCommand, AddStampCommand, RemoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, BrushStrokeCommand } from './commands';
+import { CommandHistory, MoveObjectCommand, AddStampCommand, AddObjectCommand, RemoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, BrushStrokeCommand, BatchCommand } from './commands';
 import type { BrushPoint } from './commands';
 import type { MapObject, MapState, ToolMode, StampLayer, StampLayerType, BlendMode } from './types';
 
@@ -56,6 +56,12 @@ export const MapEditorHook = {
     this._brushSize = 20;
     this._brushOpacity = 0.75;
     this._brushHardness = 0.3;
+    // Pattern stamp state
+    this._patternStrokeActive = false;
+    this._patternStrokeCmds = [] as AddObjectCommand[];
+    this._patternLastX = 0;
+    this._patternLastY = 0;
+    this._patternSpacing = 48;
 
     // Init CanvasKit (async)
     this._renderer.init(canvas).then(() => {
@@ -87,6 +93,15 @@ export const MapEditorHook = {
           this._brushActive = true;
           this._brushPoints = [{ x: world.x, y: world.y }];
           canvas.style.cursor = 'crosshair';
+          this._renderer.requestRedraw();
+        } else if (this._toolMode === 'pattern' && this._activeStampAsset) {
+          // Pattern mode: start scatter stroke
+          const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+          this._patternStrokeActive = true;
+          this._patternStrokeCmds = [];
+          this._patternLastX = world.x;
+          this._patternLastY = world.y;
+          this._placePatternStamp(world.x, world.y);
           this._renderer.requestRedraw();
         } else if (this._toolMode === 'pan') {
           // Pan mode: left click pans
@@ -184,7 +199,24 @@ export const MapEditorHook = {
     });
 
     canvas.addEventListener('mousemove', (e: MouseEvent) => {
-      if (this._brushActive && this._toolMode === 'brush') {
+      if (this._patternStrokeActive && this._toolMode === 'pattern') {
+        const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+        // Step along path from last placement to current position
+        const dx = world.x - this._patternLastX;
+        const dy = world.y - this._patternLastY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist >= this._patternSpacing) {
+          const steps = Math.floor(dist / this._patternSpacing);
+          const stepX = dx / dist * this._patternSpacing;
+          const stepY = dy / dist * this._patternSpacing;
+          for (let i = 0; i < steps; i++) {
+            this._patternLastX += stepX;
+            this._patternLastY += stepY;
+            this._placePatternStamp(this._patternLastX, this._patternLastY);
+          }
+          this._renderer.requestRedraw();
+        }
+      } else if (this._brushActive && this._toolMode === 'brush') {
         const world = viewport().screenToWorld(e.offsetX, e.offsetY);
         const last = this._brushPoints[this._brushPoints.length - 1];
         // Throttle: only add point if moved > 2 world-px (avoids thousands of duplicate points)
@@ -216,6 +248,18 @@ export const MapEditorHook = {
     });
 
     canvas.addEventListener('mouseup', (e: MouseEvent) => {
+      if (this._patternStrokeActive) {
+        this._patternStrokeActive = false;
+        if (this._patternStrokeCmds.length > 0) {
+          const batch = new BatchCommand(this._patternStrokeCmds);
+          this._history.record(batch);
+          this.pushEvent('pattern_stroke_placed', { count: this._patternStrokeCmds.length });
+        }
+        this._patternStrokeCmds = [];
+        this._renderer.requestRedraw();
+        return;
+      }
+
       if (this._brushActive && this._toolMode === 'brush') {
         this._brushActive = false;
         const points = this._brushPoints;
@@ -593,6 +637,46 @@ export const MapEditorHook = {
     if (this._keyUpHandler) {
       window.removeEventListener('keyup', this._keyUpHandler);
     }
+  },
+
+  // Helper: place a single pattern stamp with randomization
+  _placePatternStamp(this: Record<string, any>, worldX: number, worldY: number): void {
+    const asset = this._activeStampAsset;
+    if (!asset) return;
+
+    const jitter = () => (Math.random() - 0.5) * 40; // ±20px
+    const rotation = Math.random() * Math.PI * 2;
+    const scale = 0.85 + Math.random() * 0.30; // 0.85–1.15
+
+    const obj: Omit<MapObject, 'id'> = {
+      type: 'stamp',
+      x: worldX + jitter(),
+      y: worldY + jitter(),
+      width: 80,
+      height: 80,
+      rotation,
+      scale,
+      opacity: 1,
+      stampLayers: asset.layers.map((layer: any) => ({
+        id: `${layer.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        type: (layer.type ?? 'base') as StampLayerType,
+        blendMode: (layer.blendMode ?? 'normal') as BlendMode,
+        opacity: layer.opacity ?? 1,
+        visible: layer.visible ?? true,
+        frames: layer.frames ?? [],
+        fps: layer.fps ?? 0,
+        keyed_to: layer.keyed_to,
+      })),
+      data: { assetName: asset.name, assetCategory: asset.category, isPatternStamp: true },
+    };
+
+    const targetLayer = this._layers.getLayers().find((l: any) => l.type === 'features')
+      ?? this._layers.getLayers()[0];
+    if (!targetLayer) return;
+
+    const cmd = new AddObjectCommand(this._layers, targetLayer.id, obj);
+    cmd.execute();
+    this._patternStrokeCmds.push(cmd);
   },
 
   // Helper: find which layer contains an object
