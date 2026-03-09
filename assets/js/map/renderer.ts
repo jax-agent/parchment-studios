@@ -1,4 +1,4 @@
-import type { Layer, MapObject, MapState, StampLayer, BlendMode } from './types';
+import type { Layer, MapObject, MapState, StampLayer, BlendMode, PathStyle } from './types';
 import type { BrushPoint } from './commands';
 
 export class Viewport {
@@ -146,6 +146,13 @@ export interface PreviewStroke {
   hardness: number;
 }
 
+export interface PathPreview {
+  waypoints: { x: number; y: number }[];
+  mouseX: number;
+  mouseY: number;
+  pathStyle: PathStyle;
+}
+
 export class MapRenderer {
   private ck: any | null = null;
   private surface: any | null = null;
@@ -207,6 +214,7 @@ export class MapRenderer {
     getSelectedIdFn?: () => string | null,
     getMapStateFn?: () => MapState,
     getPreviewStrokeFn?: () => PreviewStroke | null,
+    getPathPreviewFn?: () => PathPreview | null,
   ): void {
     const frame = () => {
       if (this.dirty) {
@@ -216,6 +224,7 @@ export class MapRenderer {
           getSelectedIdFn?.() ?? undefined,
           mapState.lightAngle,
           getPreviewStrokeFn?.() ?? null,
+          getPathPreviewFn?.() ?? null,
         );
         this.dirty = false;
       }
@@ -475,6 +484,117 @@ export class MapRenderer {
   }
 
   /**
+   * Draw a completed path MapObject using Catmull-Rom splines.
+   */
+  private renderPathObject(canvas: any, obj: MapObject, ck: any): void {
+    const waypoints = (obj.data.waypoints as { x: number; y: number }[]) ?? [];
+    if (waypoints.length < 2) return;
+
+    const pathStyle = (obj.data.pathStyle as PathStyle) ?? 'road';
+    const width = (obj.data.pathWidth as number) ?? 3;
+    const color = (obj.data.pathColor as string) ?? '#8B6914';
+
+    const skPath = this.buildStrokePath(ck, waypoints);
+    const paint = new ck.Paint();
+    try {
+      paint.setAntiAlias(true);
+      paint.setStyle(ck.PaintStyle.Stroke);
+      paint.setStrokeCap(ck.StrokeCap.Round);
+      paint.setStrokeJoin(ck.StrokeJoin.Round);
+
+      if (pathStyle === 'road') {
+        // Double-line: wider dark line, then parchment gap, then thin dark line
+        const [r, g, b] = this.parseHexColor(color);
+        paint.setColor(ck.Color(r, g, b, 255));
+        paint.setStrokeWidth(width + 4);
+        canvas.drawPath(skPath, paint);
+        const [pr, pg, pb] = this.parseHexColor('#f4e4c1');
+        paint.setColor(ck.Color(pr, pg, pb, 255));
+        paint.setStrokeWidth(width);
+        canvas.drawPath(skPath, paint);
+      } else if (pathStyle === 'border') {
+        const [r, g, b] = this.parseHexColor(color);
+        paint.setColor(ck.Color(r, g, b, 255));
+        paint.setStrokeWidth(width);
+        const dashEffect = ck.PathEffect.MakeDash([8, 4], 0);
+        paint.setPathEffect(dashEffect);
+        canvas.drawPath(skPath, paint);
+        paint.setPathEffect(null);
+        dashEffect.delete();
+      } else if (pathStyle === 'mountain_pass') {
+        const [r, g, b] = this.parseHexColor(color);
+        paint.setColor(ck.Color(r, g, b, 255));
+        paint.setStrokeWidth(width);
+        const dashEffect = ck.PathEffect.MakeDash([2, 4], 0);
+        paint.setPathEffect(dashEffect);
+        canvas.drawPath(skPath, paint);
+        paint.setPathEffect(null);
+        dashEffect.delete();
+      } else {
+        // river + default
+        const [r, g, b] = this.parseHexColor(color);
+        paint.setColor(ck.Color(r, g, b, 255));
+        paint.setStrokeWidth(width);
+        if (pathStyle === 'river') {
+          const blur = ck.MaskFilter.MakeBlur(ck.BlurStyle.Normal, 1.5, true);
+          paint.setMaskFilter(blur);
+          blur.delete();
+        }
+        canvas.drawPath(skPath, paint);
+        paint.setMaskFilter(null);
+      }
+    } finally {
+      paint.delete();
+      skPath.delete();
+    }
+  }
+
+  /**
+   * Draw in-progress path preview with ghost segment and waypoint dots.
+   */
+  private renderPathPreview(canvas: any, ck: any, preview: PathPreview): void {
+    const { waypoints, mouseX, mouseY } = preview;
+    if (waypoints.length === 0) return;
+
+    // Draw ghost spline through placed waypoints + cursor position
+    const ghostPts = [...waypoints, { x: mouseX, y: mouseY }];
+    if (ghostPts.length >= 2) {
+      const ghostPath = this.buildStrokePath(ck, ghostPts);
+      const paint = new ck.Paint();
+      try {
+        paint.setAntiAlias(true);
+        paint.setStyle(ck.PaintStyle.Stroke);
+        paint.setStrokeWidth(2);
+        paint.setStrokeCap(ck.StrokeCap.Round);
+        paint.setColor(ck.Color(100, 100, 100, 255));
+        paint.setAlphaf(0.5);
+        const dashEffect = ck.PathEffect.MakeDash([6, 4], 0);
+        paint.setPathEffect(dashEffect);
+        canvas.drawPath(ghostPath, paint);
+        paint.setPathEffect(null);
+        dashEffect.delete();
+      } finally {
+        paint.delete();
+        ghostPath.delete();
+      }
+    }
+
+    // Draw circles at each placed waypoint
+    const dotPaint = new ck.Paint();
+    try {
+      dotPaint.setAntiAlias(true);
+      dotPaint.setStyle(ck.PaintStyle.Fill);
+      dotPaint.setColor(ck.Color(80, 80, 80, 255));
+      dotPaint.setAlphaf(0.8);
+      for (const wp of waypoints) {
+        canvas.drawCircle(wp.x, wp.y, 4, dotPaint);
+      }
+    } finally {
+      dotPaint.delete();
+    }
+  }
+
+  /**
    * Main render call. Draws all visible map layers with their objects.
    *
    * @param layers         Current layer stack
@@ -482,7 +602,7 @@ export class MapRenderer {
    * @param lightAngle     Global light direction in radians (0 = east, π/2 = south)
    * @param previewStroke  In-progress brush stroke to render as overlay
    */
-  render(layers: Layer[], selectedObjectId?: string, lightAngle = 0, previewStroke: PreviewStroke | null = null): void {
+  render(layers: Layer[], selectedObjectId?: string, lightAngle = 0, previewStroke: PreviewStroke | null = null, pathPreview: PathPreview | null = null): void {
     if (!this.ck || !this.surface) return;
     const canvas = this.surface.getCanvas();
     const ck = this.ck;
@@ -559,10 +679,11 @@ export class MapRenderer {
             paint.delete();
           }
         } else if (obj.type === 'brush_stroke') {
-          // Brush strokes: render path with softness
           this.renderBrushStroke(canvas, obj, ck);
+        } else if (obj.type === 'path') {
+          this.renderPathObject(canvas, obj, ck);
         } else {
-          // Stamps, paths, regions: composite via stampLayers[]
+          // Stamps, regions: composite via stampLayers[]
           this.renderStampObject(canvas, obj, ck, objAlpha, lightAngle, isSelected);
         }
 
@@ -582,6 +703,11 @@ export class MapRenderer {
         previewStroke.opacity,
         previewStroke.hardness,
       );
+    }
+
+    // Render in-progress path preview
+    if (pathPreview) {
+      this.renderPathPreview(canvas, ck, pathPreview);
     }
 
     canvas.restore();
@@ -676,6 +802,8 @@ export class MapRenderer {
 
           if (obj.type === 'brush_stroke') {
             this.renderBrushStroke(canvas, obj, ck);
+          } else if (obj.type === 'path') {
+            this.renderPathObject(canvas, obj, ck);
           } else if (obj.type !== 'text') {
             this.renderStampObject(canvas, obj, ck, objAlpha, lightAngle, false);
           }
@@ -789,6 +917,8 @@ export class MapRenderer {
 
             if (obj.type === 'brush_stroke') {
               this.renderBrushStroke(tileCanvas, obj, ck);
+            } else if (obj.type === 'path') {
+              this.renderPathObject(tileCanvas, obj, ck);
             } else if (obj.type !== 'text') {
               this.renderStampObject(tileCanvas, obj, ck, objAlpha, lightAngle, false);
             }

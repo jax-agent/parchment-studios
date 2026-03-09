@@ -3,7 +3,7 @@ import type { PreviewStroke } from './renderer';
 import { LayerManager } from './layers';
 import { CommandHistory, MoveObjectCommand, AddStampCommand, AddObjectCommand, RemoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, BrushStrokeCommand, BatchCommand } from './commands';
 import type { BrushPoint } from './commands';
-import type { MapObject, MapState, ToolMode, StampLayer, StampLayerType, BlendMode } from './types';
+import type { MapObject, MapState, ToolMode, StampLayer, StampLayerType, BlendMode, PathStyle } from './types';
 
 interface HookContext {
   el: HTMLElement;
@@ -56,12 +56,18 @@ export const MapEditorHook = {
     this._brushSize = 20;
     this._brushOpacity = 0.75;
     this._brushHardness = 0.3;
-    // Pattern stamp state
+    // Pattern Stamp state
     this._patternStrokeActive = false;
     this._patternStrokeCmds = [] as AddObjectCommand[];
-    this._patternLastX = 0;
-    this._patternLastY = 0;
+    this._patternLastWorldX = 0;
+    this._patternLastWorldY = 0;
     this._patternSpacing = 48;
+    // Path tool state
+    this._pathWaypoints = [] as { x: number; y: number }[];
+    this._pathInProgress = false;
+    this._pathStyle = 'road' as PathStyle;
+    this._pathMouseX = 0;
+    this._pathMouseY = 0;
 
     // Init CanvasKit (async)
     this._renderer.init(canvas).then(() => {
@@ -77,6 +83,14 @@ export const MapEditorHook = {
               opacity: this._brushOpacity,
               hardness: this._brushHardness,
             } as PreviewStroke
+          : null,
+        () => this._pathInProgress && this._pathWaypoints.length > 0
+          ? {
+              waypoints: this._pathWaypoints,
+              mouseX: this._pathMouseX,
+              mouseY: this._pathMouseY,
+              pathStyle: this._pathStyle,
+            }
           : null,
       );
       this._renderer.requestRedraw();
@@ -94,14 +108,26 @@ export const MapEditorHook = {
           this._brushPoints = [{ x: world.x, y: world.y }];
           canvas.style.cursor = 'crosshair';
           this._renderer.requestRedraw();
+        } else if (this._toolMode === 'path') {
+          // Path mode: place waypoints on click
+          const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+          if (!this._pathInProgress) {
+            this._pathInProgress = true;
+            this._pathWaypoints = [{ x: world.x, y: world.y }];
+          } else {
+            this._pathWaypoints.push({ x: world.x, y: world.y });
+          }
+          canvas.style.cursor = 'crosshair';
+          this._renderer.requestRedraw();
         } else if (this._toolMode === 'pattern' && this._activeStampAsset) {
-          // Pattern mode: start scatter stroke
+          // Pattern Stamp mode: start a scatter stroke
           const world = viewport().screenToWorld(e.offsetX, e.offsetY);
           this._patternStrokeActive = true;
           this._patternStrokeCmds = [];
-          this._patternLastX = world.x;
-          this._patternLastY = world.y;
+          this._patternLastWorldX = world.x;
+          this._patternLastWorldY = world.y;
           this._placePatternStamp(world.x, world.y);
+          canvas.style.cursor = 'crosshair';
           this._renderer.requestRedraw();
         } else if (this._toolMode === 'pan') {
           // Pan mode: left click pans
@@ -199,21 +225,26 @@ export const MapEditorHook = {
     });
 
     canvas.addEventListener('mousemove', (e: MouseEvent) => {
-      if (this._patternStrokeActive && this._toolMode === 'pattern') {
+      if (this._pathInProgress && this._toolMode === 'path') {
         const world = viewport().screenToWorld(e.offsetX, e.offsetY);
-        // Step along path from last placement to current position
-        const dx = world.x - this._patternLastX;
-        const dy = world.y - this._patternLastY;
+        this._pathMouseX = world.x;
+        this._pathMouseY = world.y;
+        this._renderer.requestRedraw();
+      } else if (this._patternStrokeActive && this._toolMode === 'pattern') {
+        const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+        const dx = world.x - this._patternLastWorldX;
+        const dy = world.y - this._patternLastWorldY;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist >= this._patternSpacing) {
           const steps = Math.floor(dist / this._patternSpacing);
-          const stepX = dx / dist * this._patternSpacing;
-          const stepY = dy / dist * this._patternSpacing;
-          for (let i = 0; i < steps; i++) {
-            this._patternLastX += stepX;
-            this._patternLastY += stepY;
-            this._placePatternStamp(this._patternLastX, this._patternLastY);
+          for (let i = 1; i <= steps; i++) {
+            const t = (i * this._patternSpacing) / dist;
+            const wx = this._patternLastWorldX + dx * t;
+            const wy = this._patternLastWorldY + dy * t;
+            this._placePatternStamp(wx, wy);
           }
+          this._patternLastWorldX = this._patternLastWorldX + dx * (steps * this._patternSpacing / dist);
+          this._patternLastWorldY = this._patternLastWorldY + dy * (steps * this._patternSpacing / dist);
           this._renderer.requestRedraw();
         }
       } else if (this._brushActive && this._toolMode === 'brush') {
@@ -256,6 +287,7 @@ export const MapEditorHook = {
           this.pushEvent('pattern_stroke_placed', { count: this._patternStrokeCmds.length });
         }
         this._patternStrokeCmds = [];
+        canvas.style.cursor = '';
         this._renderer.requestRedraw();
         return;
       }
@@ -330,6 +362,55 @@ export const MapEditorHook = {
       this._renderer.requestRedraw();
       this.pushEvent('zoom_changed', { zoom: viewport().getZoom() });
     }, { passive: false });
+
+    // Double-click: finish path
+    canvas.addEventListener('dblclick', (e: MouseEvent) => {
+      if (this._toolMode === 'path' && this._pathInProgress && this._pathWaypoints.length >= 2) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const PATH_STYLES: Record<string, { color: string; width: number }> = {
+          road: { color: '#8B6914', width: 3 },
+          river: { color: '#3a7bc4', width: 4 },
+          border: { color: '#6b2929', width: 2 },
+          mountain_pass: { color: '#5a5a5a', width: 2 },
+        };
+        const style = PATH_STYLES[this._pathStyle] ?? PATH_STYLES.road;
+
+        const pathObj: Omit<MapObject, 'id'> = {
+          type: 'path',
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          rotation: 0,
+          scale: 1,
+          opacity: 1,
+          stampLayers: [],
+          data: {
+            waypoints: [...this._pathWaypoints],
+            pathStyle: this._pathStyle,
+            pathWidth: style.width,
+            pathColor: style.color,
+          },
+        };
+
+        const targetLayer = this._layers.getLayers().find((l: { type: string }) => l.type === 'features')
+          ?? this._layers.getLayers()[0];
+        if (targetLayer) {
+          const cmd = new AddObjectCommand(this._layers, targetLayer.id, pathObj);
+          this._history.execute(cmd);
+          this.pushEvent('path_placed', {
+            style: this._pathStyle,
+            waypoint_count: this._pathWaypoints.length,
+          });
+        }
+
+        this._pathWaypoints = [];
+        this._pathInProgress = false;
+        this._renderer.requestRedraw();
+      }
+    });
 
     // Prevent context menu on middle click
     canvas.addEventListener('contextmenu', (e: MouseEvent) => {
@@ -427,8 +508,14 @@ export const MapEditorHook = {
         return;
       }
 
-      // Escape = deselect
+      // Escape: cancel in-progress path, or deselect
       if (e.key === 'Escape') {
+        if (this._pathInProgress) {
+          this._pathWaypoints = [];
+          this._pathInProgress = false;
+          this._renderer.requestRedraw();
+          return;
+        }
         this._selectedObject = null;
         this._isDragging = false;
         setToolFromJS('select');
@@ -511,6 +598,10 @@ export const MapEditorHook = {
       if (data.size !== undefined) this._brushSize = data.size;
       if (data.opacity !== undefined) this._brushOpacity = data.opacity;
       if (data.hardness !== undefined) this._brushHardness = data.hardness;
+    });
+
+    this.handleEvent('set_path_style', (data: { style: string }) => {
+      this._pathStyle = data.style as PathStyle;
     });
 
     this.handleEvent('light_angle_changed', (data: { angle: number }) => {
@@ -639,46 +730,6 @@ export const MapEditorHook = {
     }
   },
 
-  // Helper: place a single pattern stamp with randomization
-  _placePatternStamp(this: Record<string, any>, worldX: number, worldY: number): void {
-    const asset = this._activeStampAsset;
-    if (!asset) return;
-
-    const jitter = () => (Math.random() - 0.5) * 40; // ±20px
-    const rotation = Math.random() * Math.PI * 2;
-    const scale = 0.85 + Math.random() * 0.30; // 0.85–1.15
-
-    const obj: Omit<MapObject, 'id'> = {
-      type: 'stamp',
-      x: worldX + jitter(),
-      y: worldY + jitter(),
-      width: 80,
-      height: 80,
-      rotation,
-      scale,
-      opacity: 1,
-      stampLayers: asset.layers.map((layer: any) => ({
-        id: `${layer.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        type: (layer.type ?? 'base') as StampLayerType,
-        blendMode: (layer.blendMode ?? 'normal') as BlendMode,
-        opacity: layer.opacity ?? 1,
-        visible: layer.visible ?? true,
-        frames: layer.frames ?? [],
-        fps: layer.fps ?? 0,
-        keyed_to: layer.keyed_to,
-      })),
-      data: { assetName: asset.name, assetCategory: asset.category, isPatternStamp: true },
-    };
-
-    const targetLayer = this._layers.getLayers().find((l: any) => l.type === 'features')
-      ?? this._layers.getLayers()[0];
-    if (!targetLayer) return;
-
-    const cmd = new AddObjectCommand(this._layers, targetLayer.id, obj);
-    cmd.execute();
-    this._patternStrokeCmds.push(cmd);
-  },
-
   // Helper: find which layer contains an object
   _findLayerForObject(this: Record<string, any>, objectId: string): string | null {
     for (const layer of this._layers.getLayers()) {
@@ -687,5 +738,53 @@ export const MapEditorHook = {
       }
     }
     return null;
+  },
+
+  // Helper: place a single pattern stamp with randomization
+  _placePatternStamp(this: Record<string, any>, worldX: number, worldY: number): void {
+    const asset = this._activeStampAsset;
+    if (!asset) return;
+
+    const ts = Date.now();
+    const jitter = () => (Math.random() - 0.5) * 40;
+    const rotation = Math.random() * Math.PI * 2;
+    const scale = 0.85 + Math.random() * 0.30;
+
+    const stampLayers: StampLayer[] = asset.layers.map((layer: any, i: number) => ({
+      id: `${layer.id ?? 'layer'}-${ts}-${i}`,
+      type: (layer.type ?? 'base') as StampLayerType,
+      blendMode: (layer.blendMode ?? layer.blend_mode ?? 'normal') as BlendMode,
+      opacity: layer.opacity ?? 1,
+      visible: layer.visible ?? true,
+      frames: layer.frames ?? (layer.url ? [layer.url] : []),
+      fps: layer.fps ?? 0,
+      keyed_to: layer.keyed_to,
+    }));
+
+    const size = 64;
+    const obj: Omit<MapObject, 'id'> = {
+      type: 'stamp',
+      x: worldX + jitter() - size / 2,
+      y: worldY + jitter() - size / 2,
+      width: size,
+      height: size,
+      rotation,
+      scale,
+      opacity: 1,
+      stampLayers,
+      data: {
+        assetName: asset.name,
+        assetCategory: asset.category,
+        isPatternStamp: true,
+      },
+    };
+
+    const targetLayer = this._layers.getLayers().find((l: { type: string }) => l.type === 'features')
+      ?? this._layers.getLayers()[0];
+    if (!targetLayer) return;
+
+    const cmd = new AddObjectCommand(this._layers, targetLayer.id, obj);
+    cmd.execute();
+    this._patternStrokeCmds.push(cmd);
   },
 };

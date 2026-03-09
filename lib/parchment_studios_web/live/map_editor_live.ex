@@ -445,7 +445,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
       |> Enum.find(&(&1.id == id))
 
     if asset do
-      # Preserve pattern tool mode when selecting assets
+      # If pattern tool is already active, stay in pattern mode; otherwise switch to stamp
       tool = if socket.assigns.active_tool == "pattern", do: "pattern", else: "stamp"
 
       {:noreply,
@@ -498,6 +498,16 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
 
   def handle_event("pattern_stroke_placed", %{"count" => _count}, socket) do
     {:noreply, socket}
+  end
+
+  def handle_event("path_placed", %{"style" => _style, "waypoint_count" => _count}, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("set_path_style", %{"style" => style}, socket) do
+    {:noreply,
+     socket
+     |> push_event("set_path_style", %{style: style})}
   end
 
   # When a stamp is clicked (no loreId) → just deselect lore panel

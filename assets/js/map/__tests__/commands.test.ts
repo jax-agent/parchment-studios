@@ -524,17 +524,17 @@ describe('Concrete Commands', () => {
 
     it('undo calls undo on all sub-commands in reverse order', () => {
       const order: number[] = [];
-      const cmd1: Command = {
-        id: '1', type: 'test',
-        execute() {}, undo() { order.push(1); }, toJSON() { return {}; },
-      };
-      const cmd2: Command = {
-        id: '2', type: 'test',
-        execute() {}, undo() { order.push(2); }, toJSON() { return {}; },
-      };
-      const batch = new BatchCommand([cmd1, cmd2]);
+      const cmds = [0, 1, 2].map((i) => ({
+        id: crypto.randomUUID(),
+        type: 'test',
+        execute() {},
+        undo() { order.push(i); },
+        toJSON() { return {}; },
+      }));
+      const batch = new BatchCommand(cmds);
+      batch.execute();
       batch.undo();
-      expect(order).toEqual([2, 1]);
+      expect(order).toEqual([2, 1, 0]);
     });
 
     it('toJSON serializes sub-commands', () => {
@@ -568,44 +568,39 @@ describe('Concrete Commands', () => {
       batch.undo();
       expect(layers.getLayer('features')!.objects).toHaveLength(0);
     });
-  });
-});
 
-describe('CommandHistory.record', () => {
-  it('adds to undo stack without calling execute', () => {
-    const history = new CommandHistory();
-    let executed = false;
-    const cmd: Command = {
-      id: '1', type: 'test',
-      execute() { executed = true; }, undo() {}, toJSON() { return {}; },
-    };
-    history.record(cmd);
-    expect(executed).toBe(false);
-    expect(history.canUndo()).toBe(true);
-  });
+    it('record() adds command to undo stack without executing', () => {
+      const history = new CommandHistory();
+      let execCount = 0;
+      const cmd: Command = {
+        id: crypto.randomUUID(),
+        type: 'test',
+        execute() { execCount++; },
+        undo() {},
+        toJSON() { return {}; },
+      };
+      history.record(cmd);
+      expect(execCount).toBe(0);
+      expect(history.canUndo()).toBe(true);
+      history.undo();
+      expect(history.canUndo()).toBe(false);
+    });
 
-  it('clears redo stack when recording', () => {
-    const history = new CommandHistory();
-    const noop: Command = {
-      id: '1', type: 'test',
-      execute() {}, undo() {}, toJSON() { return {}; },
-    };
-    history.execute(noop);
-    history.undo();
-    expect(history.canRedo()).toBe(true);
-    history.record(noop);
-    expect(history.canRedo()).toBe(false);
-  });
-
-  it('recorded command is undoable', () => {
-    const history = new CommandHistory();
-    let undone = false;
-    const cmd: Command = {
-      id: '1', type: 'test',
-      execute() {}, undo() { undone = true; }, toJSON() { return {}; },
-    };
-    history.record(cmd);
-    history.undo();
-    expect(undone).toBe(true);
+    it('record() clears redo stack', () => {
+      const history = new CommandHistory();
+      let execCount = 0;
+      const cmd: Command = {
+        id: crypto.randomUUID(),
+        type: 'test',
+        execute() { execCount++; },
+        undo() {},
+        toJSON() { return {}; },
+      };
+      history.execute(cmd);
+      history.undo();
+      expect(history.canRedo()).toBe(true);
+      history.record(cmd);
+      expect(history.canRedo()).toBe(false);
+    });
   });
 });

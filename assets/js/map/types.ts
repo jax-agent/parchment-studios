@@ -2,6 +2,8 @@ export type LayerType = 'terrain' | 'water' | 'features' | 'labels' | 'effects' 
 
 export type MapObjectType = 'stamp' | 'path' | 'text' | 'region' | 'brush_stroke';
 
+export type PathStyle = 'road' | 'river' | 'border' | 'mountain_pass';
+
 /**
  * The compositing type of a stamp layer.
  * - base: primary artwork layer

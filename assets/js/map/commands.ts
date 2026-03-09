@@ -11,6 +11,12 @@ export class CommandHistory {
     this.redoStack = [];
   }
 
+  /**
+   * Record a command that has already been applied externally.
+   * Adds it to the undo stack without calling execute() again.
+   * Used by the Pattern Stamp Tool: stamps appear in real time as you drag,
+   * then the BatchCommand is recorded for atomic undo at stroke end.
+   */
   record(cmd: Command): void {
     this.undoStack.push(cmd);
     this.redoStack = [];
@@ -381,10 +387,20 @@ export class AddStampCommand implements Command {
 export class BatchCommand implements Command {
   id = cmdId();
   type = 'batch';
+
   constructor(private commands: Command[]) {}
-  execute() { this.commands.forEach(c => c.execute()); }
-  undo() { [...this.commands].reverse().forEach(c => c.undo()); }
-  toJSON() { return { type: this.type, commands: this.commands.map(c => c.toJSON()) }; }
+
+  execute(): void {
+    this.commands.forEach((c) => c.execute());
+  }
+
+  undo(): void {
+    [...this.commands].reverse().forEach((c) => c.undo());
+  }
+
+  toJSON(): object {
+    return { type: this.type, commands: this.commands.map((c) => c.toJSON()) };
+  }
 }
 
 export class RemoveLayerCommand implements Command {
