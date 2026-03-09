@@ -14,7 +14,8 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
     %{id: "pattern", icon: "hero-squares-plus", label: "Pattern", key: "P"},
     %{id: "path", icon: "hero-pencil", label: "Path", key: "L"},
     %{id: "brush", icon: "hero-paint-brush", label: "Brush", key: "B"},
-    %{id: "text", icon: "hero-language", label: "Text", key: "T"}
+    %{id: "text", icon: "hero-language", label: "Text", key: "T"},
+    %{id: "region", icon: "hero-map", label: "Region", key: "G"}
   ]
 
   @default_layers [
@@ -504,6 +505,33 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
     {:noreply, socket}
   end
 
+  def handle_event(
+        "region_placed",
+        %{"fill_style" => _style, "vertex_count" => _count, "object_id" => object_id},
+        socket
+      ) do
+    project_id = socket.assigns.project.id
+
+    case Worlds.create_lore_entry(%{
+           title: "Unnamed Region",
+           type: "place",
+           content: "",
+           project_id: project_id
+         }) do
+      {:ok, lore_entry} ->
+        {:noreply,
+         push_event(socket, "lore_entry_created", %{
+           object_id: object_id,
+           lore_id: lore_entry.id
+         })}
+
+      {:error, _changeset} ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_region_style", _params, socket), do: {:noreply, socket}
+
   def handle_event("set_path_style", %{"style" => style}, socket) do
     {:noreply,
      socket
@@ -646,6 +674,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
   defp tool_icon("path"), do: "hero-pencil"
   defp tool_icon("brush"), do: "hero-paint-brush"
   defp tool_icon("text"), do: "hero-language"
+  defp tool_icon("region"), do: "hero-map"
   defp tool_icon(_), do: "hero-cursor-arrow-rays"
 
   defp tool_label("select"), do: "Select"
@@ -655,6 +684,7 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
   defp tool_label("path"), do: "Path"
   defp tool_label("brush"), do: "Brush"
   defp tool_label("text"), do: "Text"
+  defp tool_label("region"), do: "Region"
   defp tool_label(_), do: "Select"
 
   defp layer_dot_color("terrain"), do: "bg-green-500"

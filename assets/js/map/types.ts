@@ -4,6 +4,8 @@ export type MapObjectType = 'stamp' | 'path' | 'text' | 'region' | 'brush_stroke
 
 export type PathStyle = 'road' | 'river' | 'border' | 'mountain_pass';
 
+export type RegionFillStyle = 'none' | 'hatching' | 'watercolor' | 'crosshatch' | 'solid';
+
 /**
  * The compositing type of a stamp layer.
  * - base: primary artwork layer
@@ -64,7 +66,7 @@ export interface MapObject {
   data: Record<string, unknown>;
 }
 
-export type ToolMode = 'select' | 'pan' | 'stamp' | 'pattern' | 'path' | 'brush' | 'text';
+export type ToolMode = 'select' | 'pan' | 'stamp' | 'pattern' | 'path' | 'brush' | 'text' | 'region';
 
 /**
  * Global map state passed to the renderer each frame.

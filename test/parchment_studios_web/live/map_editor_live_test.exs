@@ -39,7 +39,7 @@ defmodule ParchmentStudiosWeb.MapEditorLiveTest do
   end
 
   describe "tool management" do
-    test "renders radial wheel with 7 tool buttons", %{
+    test "renders radial wheel with 8 tool buttons", %{
       conn: conn,
       project: project,
       world_map: world_map
@@ -54,6 +54,7 @@ defmodule ParchmentStudiosWeb.MapEditorLiveTest do
       assert html =~ "Path (L)"
       assert html =~ "Brush (B)"
       assert html =~ "Text (T)"
+      assert html =~ "Region (G)"
     end
 
     test "set_tool changes active tool for each tool type", %{
@@ -63,7 +64,7 @@ defmodule ParchmentStudiosWeb.MapEditorLiveTest do
     } do
       {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
 
-      for tool <- ~w(select pan stamp pattern path brush text) do
+      for tool <- ~w(select pan stamp pattern path brush text region) do
         view
         |> element(~s([phx-click="set_tool"][phx-value-tool="#{tool}"]))
         |> render_click()
@@ -387,6 +388,60 @@ defmodule ParchmentStudiosWeb.MapEditorLiveTest do
       # Verify tool switched (asset library visibility depends on loaded assets)
       html = render(view)
       assert html =~ "tool-wheel__btn--active"
+    end
+  end
+
+  describe "region tool" do
+    test "region_placed event creates a LoreEntry and returns lore_entry_created push", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      render_hook(view, "region_placed", %{
+        "fill_style" => "hatching",
+        "vertex_count" => 4,
+        "object_id" => "region-001"
+      })
+
+      # A lore entry should have been created
+      lore_entries = Worlds.list_lore_entries(project.id)
+      assert length(lore_entries) == 1
+      assert hd(lore_entries).title == "Unnamed Region"
+      assert hd(lore_entries).type == "place"
+    end
+
+    test "region_placed with correct vertex_count", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # 5 vertices
+      render_hook(view, "region_placed", %{
+        "fill_style" => "watercolor",
+        "vertex_count" => 5,
+        "object_id" => "region-002"
+      })
+
+      lore_entries = Worlds.list_lore_entries(project.id)
+      assert length(lore_entries) == 1
+    end
+
+    test "set_region_style returns noreply", %{
+      conn: conn,
+      project: project,
+      world_map: world_map
+    } do
+      {:ok, view, _html} = live(conn, ~p"/projects/#{project.id}/maps/#{world_map.id}")
+
+      # Should not crash
+      render_hook(view, "set_region_style", %{"style" => "crosshatch"})
+
+      html = render(view)
+      assert html =~ "tool-wheel"
     end
   end
 

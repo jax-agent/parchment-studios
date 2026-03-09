@@ -1,9 +1,10 @@
 import { MapRenderer, Viewport } from './renderer';
-import type { PreviewStroke } from './renderer';
+import type { PreviewStroke, RegionPreview } from './renderer';
 import { LayerManager } from './layers';
 import { CommandHistory, MoveObjectCommand, AddStampCommand, AddObjectCommand, RemoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, BrushStrokeCommand, BatchCommand } from './commands';
 import type { BrushPoint } from './commands';
-import type { MapObject, MapState, ToolMode, StampLayer, StampLayerType, BlendMode, PathStyle } from './types';
+import type { MapObject, MapState, ToolMode, StampLayer, StampLayerType, BlendMode, PathStyle, RegionFillStyle } from './types';
+import { computeCentroid } from './region';
 
 interface HookContext {
   el: HTMLElement;
@@ -68,6 +69,13 @@ export const MapEditorHook = {
     this._pathStyle = 'road' as PathStyle;
     this._pathMouseX = 0;
     this._pathMouseY = 0;
+    // Region tool state
+    this._regionVertices = [] as { x: number; y: number }[];
+    this._regionInProgress = false;
+    this._regionFillStyle = 'hatching' as RegionFillStyle;
+    this._regionFillColor = '#2d5a27';
+    this._regionMouseX = 0;
+    this._regionMouseY = 0;
 
     // Init CanvasKit (async)
     this._renderer.init(canvas).then(() => {
@@ -91,6 +99,15 @@ export const MapEditorHook = {
               mouseY: this._pathMouseY,
               pathStyle: this._pathStyle,
             }
+          : null,
+        () => this._regionInProgress && this._regionVertices.length > 0
+          ? {
+              vertices: this._regionVertices,
+              mouseX: this._regionMouseX,
+              mouseY: this._regionMouseY,
+              fillStyle: this._regionFillStyle,
+              fillColor: this._regionFillColor,
+            } as RegionPreview
           : null,
       );
       this._renderer.requestRedraw();
@@ -116,6 +133,17 @@ export const MapEditorHook = {
             this._pathWaypoints = [{ x: world.x, y: world.y }];
           } else {
             this._pathWaypoints.push({ x: world.x, y: world.y });
+          }
+          canvas.style.cursor = 'crosshair';
+          this._renderer.requestRedraw();
+        } else if (this._toolMode === 'region') {
+          // Region mode: place polygon vertices on click
+          const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+          if (!this._regionInProgress) {
+            this._regionInProgress = true;
+            this._regionVertices = [{ x: world.x, y: world.y }];
+          } else {
+            this._regionVertices.push({ x: world.x, y: world.y });
           }
           canvas.style.cursor = 'crosshair';
           this._renderer.requestRedraw();
@@ -225,7 +253,12 @@ export const MapEditorHook = {
     });
 
     canvas.addEventListener('mousemove', (e: MouseEvent) => {
-      if (this._pathInProgress && this._toolMode === 'path') {
+      if (this._regionInProgress && this._toolMode === 'region') {
+        const world = viewport().screenToWorld(e.offsetX, e.offsetY);
+        this._regionMouseX = world.x;
+        this._regionMouseY = world.y;
+        this._renderer.requestRedraw();
+      } else if (this._pathInProgress && this._toolMode === 'path') {
         const world = viewport().screenToWorld(e.offsetX, e.offsetY);
         this._pathMouseX = world.x;
         this._pathMouseY = world.y;
@@ -363,8 +396,57 @@ export const MapEditorHook = {
       this.pushEvent('zoom_changed', { zoom: viewport().getZoom() });
     }, { passive: false });
 
-    // Double-click: finish path
+    // Double-click: finish path or region
     canvas.addEventListener('dblclick', (e: MouseEvent) => {
+      if (this._toolMode === 'region' && this._regionInProgress && this._regionVertices.length >= 3) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const centroid = computeCentroid(this._regionVertices);
+
+        const regionObj: Omit<MapObject, 'id'> = {
+          type: 'region',
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          rotation: 0,
+          scale: 1,
+          opacity: 1,
+          stampLayers: [],
+          data: {
+            vertices: [...this._regionVertices],
+            fillStyle: this._regionFillStyle,
+            fillColor: this._regionFillColor,
+            strokeColor: '#1a1a1a',
+            strokeWidth: 2,
+          },
+        };
+
+        const targetLayer = this._layers.getLayers().find((l: { type: string }) => l.type === 'features')
+          ?? this._layers.getLayers()[0];
+        if (targetLayer) {
+          const cmd = new AddObjectCommand(this._layers, targetLayer.id, regionObj);
+          this._history.execute(cmd);
+
+          // Get the added object's id for the lore link
+          const addedObjs = targetLayer.objects;
+          const addedObj = addedObjs[addedObjs.length - 1];
+          const objectId = addedObj?.id ?? '';
+
+          this.pushEvent('region_placed', {
+            fill_style: this._regionFillStyle,
+            vertex_count: this._regionVertices.length,
+            object_id: objectId,
+          });
+        }
+
+        this._regionVertices = [];
+        this._regionInProgress = false;
+        this._renderer.requestRedraw();
+        return;
+      }
+
       if (this._toolMode === 'path' && this._pathInProgress && this._pathWaypoints.length >= 2) {
         e.preventDefault();
         e.stopPropagation();
@@ -419,11 +501,11 @@ export const MapEditorHook = {
 
     // Tool shortcut map
     const toolShortcuts: Record<string, ToolMode> = {
-      v: 'select', h: 'pan', s: 'stamp', p: 'pattern', l: 'path', b: 'brush', t: 'text',
+      v: 'select', h: 'pan', s: 'stamp', p: 'pattern', l: 'path', b: 'brush', t: 'text', g: 'region',
     };
     const toolLabels: Record<string, string> = {
       select: 'Select', pan: 'Pan', stamp: 'Stamp', pattern: 'Pattern',
-      path: 'Path', brush: 'Brush', text: 'Text',
+      path: 'Path', brush: 'Brush', text: 'Text', region: 'Region',
     };
 
     const isInputFocused = () => {
@@ -508,8 +590,14 @@ export const MapEditorHook = {
         return;
       }
 
-      // Escape: cancel in-progress path, or deselect
+      // Escape: cancel in-progress region or path, or deselect
       if (e.key === 'Escape') {
+        if (this._regionInProgress) {
+          this._regionVertices = [];
+          this._regionInProgress = false;
+          this._renderer.requestRedraw();
+          return;
+        }
         if (this._pathInProgress) {
           this._pathWaypoints = [];
           this._pathInProgress = false;
@@ -604,6 +692,14 @@ export const MapEditorHook = {
       this._pathStyle = data.style as PathStyle;
     });
 
+    this.handleEvent('set_region_fill_style', (data: { style: string }) => {
+      this._regionFillStyle = data.style as RegionFillStyle;
+    });
+
+    this.handleEvent('set_region_fill_color', (data: { color: string }) => {
+      this._regionFillColor = data.color;
+    });
+
     this.handleEvent('light_angle_changed', (data: { angle: number }) => {
       this._mapState = { ...this._mapState, lightAngle: data.angle };
       this._renderer.requestRedraw();
@@ -614,13 +710,15 @@ export const MapEditorHook = {
       this._renderer.requestRedraw();
     });
 
-    // When server creates a LoreEntry for a stamp, update the MapObject's loreId
-    this.handleEvent('lore_entry_created', (data: { stamp_id: string; lore_id: string }) => {
+    // When server creates a LoreEntry for a stamp/region, update the MapObject's loreId
+    this.handleEvent('lore_entry_created', (data: { stamp_id?: string; object_id?: string; lore_id: string }) => {
+      const targetId = data.object_id || data.stamp_id;
+      if (!targetId) return;
       for (const layer of this._layers.getLayers()) {
-        const obj = layer.objects.find((o: MapObject) => o.id === data.stamp_id);
+        const obj = layer.objects.find((o: MapObject) => o.id === targetId);
         if (obj) {
-          this._layers.updateObject(layer.id, data.stamp_id, { loreId: data.lore_id });
-          if (this._selectedObject?.id === data.stamp_id) {
+          this._layers.updateObject(layer.id, targetId, { loreId: data.lore_id });
+          if (this._selectedObject?.id === targetId) {
             this._selectedObject = { ...this._selectedObject, loreId: data.lore_id };
           }
           break;

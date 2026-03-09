@@ -1,5 +1,6 @@
-import type { Layer, MapObject, MapState, StampLayer, BlendMode, PathStyle } from './types';
+import type { Layer, MapObject, MapState, StampLayer, BlendMode, PathStyle, RegionFillStyle } from './types';
 import type { BrushPoint } from './commands';
+import { pointInPolygon } from './region';
 
 export class Viewport {
   private panX = 0;
@@ -58,7 +59,12 @@ export class Viewport {
       // Check objects in reverse order (last added = on top)
       for (let i = layer.objects.length - 1; i >= 0; i--) {
         const obj = layer.objects[i];
-        if (
+        if (obj.type === 'region') {
+          const verts = obj.data.vertices as { x: number; y: number }[] | undefined;
+          if (verts && verts.length >= 3 && pointInPolygon(world.x, world.y, verts)) {
+            return obj;
+          }
+        } else if (
           world.x >= obj.x &&
           world.x <= obj.x + obj.width &&
           world.y >= obj.y &&
@@ -153,6 +159,14 @@ export interface PathPreview {
   pathStyle: PathStyle;
 }
 
+export interface RegionPreview {
+  vertices: { x: number; y: number }[];
+  mouseX: number;
+  mouseY: number;
+  fillStyle: RegionFillStyle;
+  fillColor: string;
+}
+
 export class MapRenderer {
   private ck: any | null = null;
   private surface: any | null = null;
@@ -215,6 +229,7 @@ export class MapRenderer {
     getMapStateFn?: () => MapState,
     getPreviewStrokeFn?: () => PreviewStroke | null,
     getPathPreviewFn?: () => PathPreview | null,
+    getRegionPreviewFn?: () => RegionPreview | null,
   ): void {
     const frame = () => {
       if (this.dirty) {
@@ -225,6 +240,7 @@ export class MapRenderer {
           mapState.lightAngle,
           getPreviewStrokeFn?.() ?? null,
           getPathPreviewFn?.() ?? null,
+          getRegionPreviewFn?.() ?? null,
         );
         this.dirty = false;
       }
@@ -595,6 +611,185 @@ export class MapRenderer {
   }
 
   /**
+   * Draw a completed region polygon with fill style and border.
+   */
+  private drawRegion(canvas: any, obj: MapObject, ck: any): void {
+    const vertices = obj.data.vertices as { x: number; y: number }[];
+    if (!vertices || vertices.length < 3) return;
+
+    const path = new ck.Path();
+    path.moveTo(vertices[0].x, vertices[0].y);
+    for (let i = 1; i < vertices.length; i++) {
+      path.lineTo(vertices[i].x, vertices[i].y);
+    }
+    path.close();
+
+    const fillStyle = obj.data.fillStyle as string;
+    const fillColor = (obj.data.fillColor as string) || '#2d5a27';
+    const strokeColor = (obj.data.strokeColor as string) || '#1a1a1a';
+    const strokeWidth = (obj.data.strokeWidth as number) || 2;
+
+    const paint = new ck.Paint();
+    paint.setAntiAlias(true);
+
+    try {
+      // Fill
+      if (fillStyle === 'solid') {
+        paint.setStyle(ck.PaintStyle.Fill);
+        const [r, g, b] = this.parseHexColor(fillColor);
+        paint.setColor(ck.Color4f(r / 255, g / 255, b / 255, 0.35));
+        canvas.drawPath(path, paint);
+      } else if (fillStyle === 'hatching' || fillStyle === 'crosshatch') {
+        canvas.save();
+        canvas.clipPath(path, ck.ClipOp.Intersect, true);
+
+        const xs = vertices.map((v: { x: number }) => v.x);
+        const ys = vertices.map((v: { y: number }) => v.y);
+        const minX = Math.min(...xs) - 10;
+        const maxX = Math.max(...xs) + 10;
+        const minY = Math.min(...ys) - 10;
+        const maxY = Math.max(...ys) + 10;
+        const span = Math.max(maxX - minX, maxY - minY);
+
+        paint.setStyle(ck.PaintStyle.Stroke);
+        const [r, g, b] = this.parseHexColor(fillColor);
+        paint.setColor(ck.Color4f(r / 255, g / 255, b / 255, 0.5));
+        paint.setStrokeWidth(1);
+
+        const spacing = 12;
+        const hatchPath = new ck.Path();
+        for (let d = -span; d <= span * 2; d += spacing) {
+          hatchPath.moveTo(minX + d, minY);
+          hatchPath.lineTo(minX + d - span, maxY);
+        }
+        if (fillStyle === 'crosshatch') {
+          for (let d = -span; d <= span * 2; d += spacing) {
+            hatchPath.moveTo(minX, minY + d);
+            hatchPath.lineTo(maxX, minY + d + span);
+          }
+        }
+        canvas.drawPath(hatchPath, paint);
+        hatchPath.delete();
+        canvas.restore();
+      } else if (fillStyle === 'watercolor') {
+        paint.setStyle(ck.PaintStyle.Fill);
+        const [r, g, b] = this.parseHexColor(fillColor);
+        paint.setColor(ck.Color4f(r / 255, g / 255, b / 255, 0.25));
+        const blur = ck.MaskFilter.MakeBlur(ck.BlurStyle.Normal, 6, false);
+        paint.setMaskFilter(blur);
+        canvas.drawPath(path, paint);
+        paint.setMaskFilter(null);
+        paint.setColor(ck.Color4f(r / 255, g / 255, b / 255, 0.15));
+        canvas.drawPath(path, paint);
+      }
+      // 'none' — no fill, just stroke
+
+      // Stroke (polygon border)
+      paint.setStyle(ck.PaintStyle.Stroke);
+      paint.setStrokeWidth(strokeWidth);
+      paint.setMaskFilter(null);
+      const [sr, sg, sb] = this.parseHexColor(strokeColor);
+      paint.setColor(ck.Color4f(sr / 255, sg / 255, sb / 255, 0.8));
+      const dashes = ck.PathEffect.MakeDash([6, 3], 0);
+      paint.setPathEffect(dashes);
+      canvas.drawPath(path, paint);
+      paint.setPathEffect(null);
+      dashes.delete();
+    } finally {
+      paint.delete();
+      path.delete();
+    }
+  }
+
+  /**
+   * Draw in-progress region preview with ghost edges, vertex dots, and closing preview.
+   */
+  private renderRegionPreview(canvas: any, ck: any, preview: RegionPreview): void {
+    const { vertices, mouseX, mouseY, fillStyle, fillColor } = preview;
+    if (vertices.length === 0) return;
+
+    // Draw filled polygon preview (50% opacity) if >= 3 vertices
+    if (vertices.length >= 3) {
+      const fillPath = new ck.Path();
+      fillPath.moveTo(vertices[0].x, vertices[0].y);
+      for (let i = 1; i < vertices.length; i++) {
+        fillPath.lineTo(vertices[i].x, vertices[i].y);
+      }
+      fillPath.close();
+
+      const fp = new ck.Paint();
+      try {
+        fp.setAntiAlias(true);
+        fp.setStyle(ck.PaintStyle.Fill);
+        const [r, g, b] = this.parseHexColor(fillColor);
+        fp.setColor(ck.Color4f(r / 255, g / 255, b / 255, 0.2));
+        canvas.drawPath(fillPath, fp);
+      } finally {
+        fp.delete();
+        fillPath.delete();
+      }
+
+      // Draw closing-edge preview (last vertex → first vertex, dashed)
+      const closePaint = new ck.Paint();
+      try {
+        closePaint.setAntiAlias(true);
+        closePaint.setStyle(ck.PaintStyle.Stroke);
+        closePaint.setStrokeWidth(1);
+        closePaint.setColor(ck.Color(100, 100, 100, 255));
+        closePaint.setAlphaf(0.4);
+        const dashEff = ck.PathEffect.MakeDash([4, 4], 0);
+        closePaint.setPathEffect(dashEff);
+        const closePath = new ck.Path();
+        const last = vertices[vertices.length - 1];
+        closePath.moveTo(last.x, last.y);
+        closePath.lineTo(vertices[0].x, vertices[0].y);
+        canvas.drawPath(closePath, closePaint);
+        closePaint.setPathEffect(null);
+        dashEff.delete();
+        closePath.delete();
+      } finally {
+        closePaint.delete();
+      }
+    }
+
+    // Draw ghost edge from last vertex to mouse
+    const ghostPaint = new ck.Paint();
+    try {
+      ghostPaint.setAntiAlias(true);
+      ghostPaint.setStyle(ck.PaintStyle.Stroke);
+      ghostPaint.setStrokeWidth(2);
+      ghostPaint.setColor(ck.Color(100, 100, 100, 255));
+      ghostPaint.setAlphaf(0.5);
+      const dashEff = ck.PathEffect.MakeDash([6, 4], 0);
+      ghostPaint.setPathEffect(dashEff);
+      const ghostPath = new ck.Path();
+      const last = vertices[vertices.length - 1];
+      ghostPath.moveTo(last.x, last.y);
+      ghostPath.lineTo(mouseX, mouseY);
+      canvas.drawPath(ghostPath, ghostPaint);
+      ghostPaint.setPathEffect(null);
+      dashEff.delete();
+      ghostPath.delete();
+    } finally {
+      ghostPaint.delete();
+    }
+
+    // Draw small circles at each placed vertex
+    const dotPaint = new ck.Paint();
+    try {
+      dotPaint.setAntiAlias(true);
+      dotPaint.setStyle(ck.PaintStyle.Fill);
+      dotPaint.setColor(ck.Color(80, 80, 80, 255));
+      dotPaint.setAlphaf(0.8);
+      for (const v of vertices) {
+        canvas.drawCircle(v.x, v.y, 4, dotPaint);
+      }
+    } finally {
+      dotPaint.delete();
+    }
+  }
+
+  /**
    * Main render call. Draws all visible map layers with their objects.
    *
    * @param layers         Current layer stack
@@ -602,7 +797,7 @@ export class MapRenderer {
    * @param lightAngle     Global light direction in radians (0 = east, π/2 = south)
    * @param previewStroke  In-progress brush stroke to render as overlay
    */
-  render(layers: Layer[], selectedObjectId?: string, lightAngle = 0, previewStroke: PreviewStroke | null = null, pathPreview: PathPreview | null = null): void {
+  render(layers: Layer[], selectedObjectId?: string, lightAngle = 0, previewStroke: PreviewStroke | null = null, pathPreview: PathPreview | null = null, regionPreview: RegionPreview | null = null): void {
     if (!this.ck || !this.surface) return;
     const canvas = this.surface.getCanvas();
     const ck = this.ck;
@@ -682,8 +877,10 @@ export class MapRenderer {
           this.renderBrushStroke(canvas, obj, ck);
         } else if (obj.type === 'path') {
           this.renderPathObject(canvas, obj, ck);
+        } else if (obj.type === 'region') {
+          this.drawRegion(canvas, obj, ck);
         } else {
-          // Stamps, regions: composite via stampLayers[]
+          // Stamps: composite via stampLayers[]
           this.renderStampObject(canvas, obj, ck, objAlpha, lightAngle, isSelected);
         }
 
@@ -708,6 +905,11 @@ export class MapRenderer {
     // Render in-progress path preview
     if (pathPreview) {
       this.renderPathPreview(canvas, ck, pathPreview);
+    }
+
+    // Render in-progress region preview
+    if (regionPreview) {
+      this.renderRegionPreview(canvas, ck, regionPreview);
     }
 
     canvas.restore();
