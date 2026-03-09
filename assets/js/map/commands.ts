@@ -11,6 +11,11 @@ export class CommandHistory {
     this.redoStack = [];
   }
 
+  record(cmd: Command): void {
+    this.undoStack.push(cmd);
+    this.redoStack = [];
+  }
+
   undo(): void {
     const cmd = this.undoStack.pop();
     if (!cmd) return;
@@ -371,6 +376,15 @@ export class AddStampCommand implements Command {
   toJSON(): object {
     return { type: this.type, layerId: this.layerId, params: this.params, addedId: this.addedId };
   }
+}
+
+export class BatchCommand implements Command {
+  id = cmdId();
+  type = 'batch';
+  constructor(private commands: Command[]) {}
+  execute() { this.commands.forEach(c => c.execute()); }
+  undo() { [...this.commands].reverse().forEach(c => c.undo()); }
+  toJSON() { return { type: this.type, commands: this.commands.map(c => c.toJSON()) }; }
 }
 
 export class RemoveLayerCommand implements Command {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CommandHistory, AddObjectCommand, RemoveObjectCommand, MoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, ReorderLayerCommand, AddLayerCommand, RemoveLayerCommand, AddStampCommand, BrushStrokeCommand } from '../commands';
+import { CommandHistory, AddObjectCommand, RemoveObjectCommand, MoveObjectCommand, SetLayerVisibilityCommand, SetLayerOpacityCommand, ReorderLayerCommand, AddLayerCommand, RemoveLayerCommand, AddStampCommand, BrushStrokeCommand, BatchCommand } from '../commands';
 import { LayerManager } from '../layers';
 import type { Command, MapObject, StampLayer } from '../types';
 
@@ -504,5 +504,108 @@ describe('Concrete Commands', () => {
       expect(json.layerId).toBe('terrain');
       expect(json.params.color).toBe('#4a7c59');
     });
+  });
+
+  describe('BatchCommand', () => {
+    it('execute calls execute on all sub-commands in order', () => {
+      const order: number[] = [];
+      const cmd1: Command = {
+        id: '1', type: 'test',
+        execute() { order.push(1); }, undo() {}, toJSON() { return {}; },
+      };
+      const cmd2: Command = {
+        id: '2', type: 'test',
+        execute() { order.push(2); }, undo() {}, toJSON() { return {}; },
+      };
+      const batch = new BatchCommand([cmd1, cmd2]);
+      batch.execute();
+      expect(order).toEqual([1, 2]);
+    });
+
+    it('undo calls undo on all sub-commands in reverse order', () => {
+      const order: number[] = [];
+      const cmd1: Command = {
+        id: '1', type: 'test',
+        execute() {}, undo() { order.push(1); }, toJSON() { return {}; },
+      };
+      const cmd2: Command = {
+        id: '2', type: 'test',
+        execute() {}, undo() { order.push(2); }, toJSON() { return {}; },
+      };
+      const batch = new BatchCommand([cmd1, cmd2]);
+      batch.undo();
+      expect(order).toEqual([2, 1]);
+    });
+
+    it('toJSON serializes sub-commands', () => {
+      const cmd1: Command = {
+        id: '1', type: 'test',
+        execute() {}, undo() {}, toJSON() { return { type: 'a' }; },
+      };
+      const batch = new BatchCommand([cmd1]);
+      const json = batch.toJSON() as any;
+      expect(json.type).toBe('batch');
+      expect(json.commands).toHaveLength(1);
+      expect(json.commands[0].type).toBe('a');
+    });
+
+    it('works with real AddObjectCommands for batch undo', () => {
+      const obj1: Omit<MapObject, 'id'> = {
+        type: 'stamp', x: 10, y: 10, width: 40, height: 40,
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
+      };
+      const obj2: Omit<MapObject, 'id'> = {
+        type: 'stamp', x: 50, y: 50, width: 40, height: 40,
+        rotation: 0, scale: 1, opacity: 1, stampLayers: [], data: {},
+      };
+      const cmd1 = new AddObjectCommand(layers, 'features', obj1);
+      const cmd2 = new AddObjectCommand(layers, 'features', obj2);
+      cmd1.execute();
+      cmd2.execute();
+      expect(layers.getLayer('features')!.objects).toHaveLength(2);
+
+      const batch = new BatchCommand([cmd1, cmd2]);
+      batch.undo();
+      expect(layers.getLayer('features')!.objects).toHaveLength(0);
+    });
+  });
+});
+
+describe('CommandHistory.record', () => {
+  it('adds to undo stack without calling execute', () => {
+    const history = new CommandHistory();
+    let executed = false;
+    const cmd: Command = {
+      id: '1', type: 'test',
+      execute() { executed = true; }, undo() {}, toJSON() { return {}; },
+    };
+    history.record(cmd);
+    expect(executed).toBe(false);
+    expect(history.canUndo()).toBe(true);
+  });
+
+  it('clears redo stack when recording', () => {
+    const history = new CommandHistory();
+    const noop: Command = {
+      id: '1', type: 'test',
+      execute() {}, undo() {}, toJSON() { return {}; },
+    };
+    history.execute(noop);
+    history.undo();
+    expect(history.canRedo()).toBe(true);
+    history.record(noop);
+    expect(history.canRedo()).toBe(false);
+  });
+
+  it('recorded command is undoable', () => {
+    const history = new CommandHistory();
+    let undone = false;
+    const cmd: Command = {
+      id: '1', type: 'test',
+      execute() {}, undo() { undone = true; }, toJSON() { return {}; },
+    };
+    history.record(cmd);
+    history.undo();
+    expect(undone).toBe(true);
   });
 });

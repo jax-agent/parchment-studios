@@ -445,10 +445,13 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
       |> Enum.find(&(&1.id == id))
 
     if asset do
+      # Preserve pattern tool mode when selecting assets
+      tool = if socket.assigns.active_tool == "pattern", do: "pattern", else: "stamp"
+
       {:noreply,
        socket
-       |> assign(active_stamp_asset: asset, active_tool: "stamp")
-       |> push_event("set_tool", %{tool: "stamp", stamp_asset: encode_stamp_asset(asset)})}
+       |> assign(active_stamp_asset: asset, active_tool: tool)
+       |> push_event("set_tool", %{tool: tool, stamp_asset: encode_stamp_asset(asset)})}
     else
       {:noreply, socket}
     end
@@ -490,6 +493,10 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
   end
 
   def handle_event("stamp_placed", _params, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("pattern_stroke_placed", %{"count" => _count}, socket) do
     {:noreply, socket}
   end
 
@@ -955,9 +962,9 @@ defmodule ParchmentStudiosWeb.MapEditorLive do
             </div>
           </div>
 
-          <%!-- Asset library dock (only when stamp tool active) --%>
+          <%!-- Asset library dock (when stamp or pattern tool active) --%>
           <div
-            :if={@active_tool == "stamp" && @asset_library != %{}}
+            :if={@active_tool in ["stamp", "pattern"] && @asset_library != %{}}
             class="bg-base-100/95 border-t border-base-content/10 flex-shrink-0"
           >
             <div class="flex items-center gap-1 px-3 py-1.5 border-b border-base-content/10">
